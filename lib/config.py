@@ -58,6 +58,48 @@ class Config:
         return self.get('security.block_duration_days', 2)
 
 # Konstanten für Bot-Zustände
-MAIN, LOGIN, ADMIN = range(3)
+MAIN, LOGIN, ADMIN, STATISTICS = range(4)
 
+# Modi werden in fritzdect_bot.py gesetzt
+modeList = [None, None, None, None]
+
+# Tastatur-Layouts
+reply_keyboard_main = [['Geräte', 'Temperatur setzen', 'Logout'],['Sensor']]
+
+def genMarkupList():
+    """Generiert die MarkupList für alle Modi"""
+    from telegram import ReplyKeyboardMarkup
+    
+    markupList = {}
+    for i in range(len(modeList)):
+        if modeList[i] != None:
+            markupList[i] = ReplyKeyboardMarkup(buildKeyboard(modeList[i]), one_time_keyboard=False, resize_keyboard=True)
+        else:
+            markupList[i] = ReplyKeyboardMarkup(reply_keyboard_main, one_time_keyboard=False, resize_keyboard=True)
+    return markupList
+
+def getMarkupList(status):
+    """Gibt die MarkupList für einen bestimmten Status zurück"""
+    from telegram import ReplyKeyboardMarkup
+    
+    if modeList[status] != None:
+        return ReplyKeyboardMarkup(buildKeyboard(modeList[status]), one_time_keyboard=False, resize_keyboard=True)
+    return ReplyKeyboardMarkup(reply_keyboard_main, one_time_keyboard=False, resize_keyboard=True)
+
+def buildKeyboard(classs):
+    """Erstellt eine Tastatur aus den Variablen 'tastertur' einer Klasse"""
+    temp=[]
+    reply_keyboard=[]
+    i=0
+    for v in classs.tastertur.values():
+        temp.append(v)
+        i=i+1
+        if i % 3 == 0:
+            reply_keyboard.append(temp)
+            temp=[]
+    reply_keyboard.append(temp)
+    return reply_keyboard
+
+# markupList wird in fritzdect_bot.py generiert
+markupList = None
 

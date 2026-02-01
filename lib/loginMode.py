@@ -72,8 +72,18 @@ async def login(bot, update, user_data, markupList):
                 "Login erfolgreich!",
                 reply_markup= markupList[MAIN]
             )
-        user_data['keyboard'] = markupList[MAIN]
-        user_data['status'] = MAIN
+            try:
+                await bot.send_message(config.get_admin_chat_id(),text='Request: '+user_data['firstname']+' '+user_data['lastname']+' möchte auf dein Licht im Zimmer zugreifen. Möchtest du in den Admin-Modus wechseln?')
+                await bot.send_message(config.get_admin_chat_id(),text='Antworte: /admin')
+                await bot.send_message(user_data['chatId'],text='Der Admin wurde benachrichtigt.')
+            except Exception as e:
+                print(f"Failed to notify admin: {e}")
+                await bot.send_message(user_data['chatId'],text='Der Admin konnte nicht benachrichtigt werden. Bitte überprüfe die Bot Konfiguration.')
+            await update.message.reply_text(
+                'Falls der Admin nicht schnell genug reagiert, gib das Passwort bitte noch einmal ein um den Admin an die Freigebe zu erinnern.',
+                reply_markup=markupList[LOGIN])
+        user_data['keyboard'] = markupList[LOGIN]
+        user_data['status'] = LOGIN
         return user_data['status'] 
     else:
         # Fehlgeschlagener Login-Versuch aufzeichnen

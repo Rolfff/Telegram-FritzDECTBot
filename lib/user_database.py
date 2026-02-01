@@ -83,9 +83,9 @@ class UserDatabase:
         finally:
             connection.close()
     
-    def add_user(self, chat_id, firstname=None, lastname=None, is_admin=0, allowed_hours=-1):
+    def add_user(self, chat_id, firstname=None, lastname=None, is_admin=0):
         """Fügt einen neuen Benutzer hinzu"""
-        allowed_until = DT.datetime.now() + DT.timedelta(hours=allowed_hours)
+        allowed_until = DT.datetime.now() + DT.timedelta(hours=-1)
         sql = f"""INSERT OR REPLACE INTO {self.table_name} 
                  (chatID, firstname, lastname, isAdmin, allowedToDatetime, failedAttempts, blockedUntil) 
                  VALUES (?, ?, ?, ?, ?, 0, NULL)"""
@@ -227,9 +227,9 @@ class UserDatabase:
         finally:
             connection.close()
     
-    def extend_access(self, chat_id, hours=24):
+    def extend_access(self, chat_id, d=0):
         """Verlängert den Zugriff eines Benutzers"""
-        allowed_until = DT.datetime.now() + DT.timedelta(hours=hours)
+        allowed_until = DT.datetime.now() + DT.timedelta(days=d)
         sql = f"UPDATE {self.table_name} SET allowedToDatetime = ? WHERE chatID = ?"
         self.execute(sql, (allowed_until, chat_id))
     
@@ -246,3 +246,5 @@ class UserDatabase:
             return []
         finally:
             connection.close()
+
+    

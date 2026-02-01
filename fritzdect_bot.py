@@ -7,17 +7,28 @@ from telegram import Update, ReplyKeyboardMarkup
 import signal
 import sys
 import asyncio
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-from lib.config import Config, LOGIN, MAIN, ADMIN
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
+from lib.config import modeList, markupList, LOGIN, MAIN, ADMIN, STATISTICS, Config, genMarkupList
 from lib.user_database import UserDatabase
 from lib.fritzbox_api import FritzBoxAPI
 
 import lib.adminMode as AdminMode
 import lib.loginMode as LoginMode
+import lib.statistikMode as StatistikMode
 
 # Konfiguration
 config = Config()
 db = UserDatabase()
+
+# Textbefehle für MAIN-Status (da modeList[MAIN] = None)
+main_textbefehl = {
+    'help': 'Diese Hilfe anzeigen',
+    'logout': 'Ausloggen',
+    'temperatur setzen': 'Temperatur eines Heizkörpers setzen',
+    'sensor': 'Alle FritzBox Geräte und deren Temperaturen anzeigen',
+    'geraete': 'Alle FritzBox Geräte und deren Temperaturen anzeigen',
+    'admin': 'Aktiviert den Admin-Modus (nur Admin)'
+}
 
 # Global variable for graceful shutdown
 shutdown_event = asyncio.Event()
@@ -38,48 +49,15 @@ logger = logging.getLogger(__name__)
 
 # Modi Klassennamen zu den Statusen (Index 0=MAIN, 1=LOGIN, 2=ADMIN, usw.)
 # Hinweis: Die Indizes müssen mit den Werten von ConversationHandler.states übereinstimmen
-modeList = [None,LoginMode,AdminMode] 
+from lib.config import modeList
+modeList[LOGIN] = LoginMode
+modeList[ADMIN] = AdminMode
+modeList[STATISTICS] = StatistikMode
 
-# Erstellt eine Tastatur aus den Variablen "tastertur" einer Klasse
-def buildKeyboard(classs):
-    temp=[]
-    reply_keyboard=[]
-    i=0
-    for v in classs.tastertur.values():
-        temp.append(v)
-        i=i+1
-        if i % 3 == 0:
-            reply_keyboard.append(temp)
-            temp=[]
-    reply_keyboard.append(temp)
-    return reply_keyboard
-
-# Tastatur-Layouts
-#reply_keyboard_login = [['Login', 'Bye']]
-reply_keyboard_main = [['Geräte', 'Temperatur setzen', 'Logout'],['Sensor']]
-#reply_keyboard_admin = [['Benutzer hinzufügen', 'Logout']]
-
-#markupList = {LOGIN:ReplyKeyboardMarkup(buildKeyboard(LoginMode), one_time_keyboard=True),
-#            ADMIN:ReplyKeyboardMarkup(buildKeyboard(AdminMode), one_time_keyboard=True),
-#            MAIN:ReplyKeyboardMarkup(reply_keyboard_main, one_time_keyboard=True)}
-def genMarkupList():
-    markupList = {}
-    for i in range(len(modeList)):
-        if modeList[i] != None:
-            markupList[i] = ReplyKeyboardMarkup(buildKeyboard(modeList[i]), one_time_keyboard=True)
-        else:
-            markupList[i] = ReplyKeyboardMarkup(reply_keyboard_main, one_time_keyboard=True)
-    return markupList  
+# markupList generieren
+from lib.config import genMarkupList
 markupList = genMarkupList()
 
-# Ist aus Kontablilitätsgründen noch da. Kann Tasattaur laiout überschreiben.
-def getMarkupList(status):
-    if modeList[status] != None:
-        return ReplyKeyboardMarkup(buildKeyboard(modeList[status]), one_time_keyboard=True)
-    return ReplyKeyboardMarkup(reply_keyboard_main, one_time_keyboard=True)
-
-  
-    
 
 def initializeChatData(message, user_data):
     """Initialisiert die Chat-Daten"""
@@ -171,7 +149,8 @@ async def selectModeFunc(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Default Funktion versuchen
                 try:
                     func = getattr(classs, 'default')
-                    funcRet = await func(context.bot, update, context.user_data, markupList)
+                    #funcRet = await func(context.bot, update, context.user_data, markupList)
+                    funcRet = await func(update, context, markupList)
                     context.user_data['status'] = funcRet
                 except AttributeError as e:
                     logger.error(f"Default-Funktion nicht gefunden in Klasse {classs.__name__}: {e}")
@@ -187,7 +166,7 @@ async def selectModeFunc(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         logger.warning(f"Konnte Admin-Benachrichtigung nicht senden: {e}")
                 
                 func = getattr(classs, str(funkName))
-                funcRet = await func(context.bot, update, context.user_data, markupList)
+                funcRet = await func(update, context, markupList)
                 context.user_data['status'] = funcRet
     return context.user_data['status']
 
@@ -216,7 +195,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def switchToAdminModus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data['chatId'] == config.get_admin_chat_id():
-        context.user_data['keyboard'] = getMarkupList(context.user_data)[ADMIN]
+        context.user_data['keyboard'] = markupList[ADMIN]
         context.user_data['status'] = ADMIN
         await update.message.reply_text("-->ADMINMODE<--",
                                   reply_markup=context.user_data['keyboard'])
@@ -226,26 +205,30 @@ async def switchToAdminModus(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Zeigt Hilfe mit allen verfügbaren Befehlen"""
-    help_text = """Verfügbare Befehle:
-
-/start - Bot starten und Login einleiten
-/help - Diese Hilfe anzeigen
-/letsgo - Rechte überprüfen und fortfahren
-/logout - Ausloggen
-/bye - Bot beenden
-
-Nach dem Login stehen folgende Funktionen zur Verfügung:
-
-Geräte - Alle FritzBox Geräte und deren Temperaturen anzeigen
-Sensor - Alle FritzBox Geräte und deren Temperaturen anzeigen
-Temperatur setzen - Temperatur für ein Gerät einstellen
-  Format: Temperatur [Gerätename] [Wert]
-  Beispiel: Temperatur Wohnzimmer 21
-
-Admin-Funktionen:
-Benutzer hinzufügen - Neue Benutzer zum Bot hinzufügen
-
-Hinweis: Temperaturen können nur zwischen 8°C und 30°C eingestellt werden."""
+    help_text = """Nutze das Keyboard für Standard-Aktionen.
+Weitere Funktionen:"""
+    
+    if context.user_data['chatId'] == config.get_admin_chat_id():
+        help_text += "\n- /admin aktiviert den Admin-Modus"
+    
+    # Textbefehle für aktuellen Status anzeigen
+    current_status = context.user_data.get('status', MAIN)
+    
+    if current_status == MAIN:
+        # MAIN-Status hat keine Klasse, aber unsere main_textbefehl Map
+        for key, value in main_textbefehl.items():
+            help_text += f'\n- /{key} {value}'
+    else:
+        # Andere Modi haben Klassen mit textbefehl Maps
+        try:
+            if modeList[current_status] is not None:
+                for key, value in modeList[current_status].textbefehl.items():
+                    help_text += f'\n- /{key} {value}'
+        except (KeyError, AttributeError, IndexError) as e:
+            # Fallback falls etwas schief geht
+            help_text += f'\n- Status {current_status}: Keine Hilfe verfügbar'
+    
+    help_text += "\n \nInvalide Angaben führen zu dieser Ausgabe. Wende dich bei weitern Fragen an den Administrator."
     
     await update.message.reply_text(help_text)
 
@@ -276,8 +259,13 @@ async def async_main():
 #            ],
             MAIN: [
                 MessageHandler(filters.Regex('^(Geräte)$'), done),
-                MessageHandler(filters.Regex('^(Temperatur)'), done),
+                CommandHandler('geraete', done),
+                MessageHandler(filters.Regex('^(Temperatur)'), lambda update, context: StatistikMode.set_temp(update, context, markupList)),
+                CommandHandler('temperatur', lambda update, context: StatistikMode.set_temp(update, context, markupList)),
                 MessageHandler(filters.Regex('^(Logout)$'), done),
+                CommandHandler('logout', done),
+                MessageHandler(filters.Regex('^(Sensor)$'), lambda update, context: StatistikMode.status(update, context, markupList)),
+                CommandHandler('Sensor', lambda update, context: StatistikMode.status(update, context, markupList)),
                 CommandHandler('admin', switchToAdminModus),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message),
                 MessageHandler(filters.COMMAND, unknown_command),
@@ -296,6 +284,9 @@ async def async_main():
             for key in modeList[x].textbefehl.keys():
                autoStates.extend([CommandHandler(str(key),
                                    selectModeFunc)])
+            # /admin Befehl für alle Modi hinzufügen (Berechtigung wird in switchToAdminModus geprüft)
+            autoStates.extend([CommandHandler('admin', switchToAdminModus)])
+            autoStates.extend([CommandHandler('help', help_command)])
             autoStates.extend([MessageHandler(filters.TEXT, selectModeFunc)])
             autoStatesHandler[x]=autoStates
 
@@ -312,11 +303,11 @@ async def async_main():
     # Help command handler
     application.add_handler(CommandHandler("help", help_command))
     
-    # Bye command handler
-    application.add_handler(CommandHandler("bye", done))
-    
     # Fallback für unbekannte Befehle
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
+    
+    # Callback handler für Inline-Keyboards
+    application.add_handler(CallbackQueryHandler(StatistikMode.handle_temp_callback))
     
     print("Bot wird gestartet...")
     
