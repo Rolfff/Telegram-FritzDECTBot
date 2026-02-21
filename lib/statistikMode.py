@@ -21,18 +21,186 @@ config = config_module.Config()
 from lib.config import genMarkupList, LOGIN, MAIN, ADMIN, STATISTICS, Config
 # markupList wird zur Laufzeit generiert, nicht beim Import
 markupList = None
-# TODO: Temperaturverlauf anzeigen lassen. Gruppen-funktionen beachten (Absenk-/Komfortemperatur, Zeitplan edit)??? Urlaub modus an und aus schalten.
-# TODO: Adminmode Testen!!!
+# TODO: Temperaturverlauf anzeigen lassen. Gruppen-funktionen beachten (Absenk-/Komfortemperatur, Zeitplan edit)???
+# TODO: Adminmode Testen!!! Alle Scenaren und Vorlagen ausführen lassen. in extra Mode.
+
+def is_vacation_active(fritz_api=None):
+    """
+    Hilfsfunktion zur Überprüfung ob der Urlaubsmodus aktiv ist
+    
+    Args:
+        fritz_api: FritzBoxAPI Instanz (optional, wird bei None erstellt)
+    
+    Returns:
+        dict: {
+            'is_active': bool,           # True wenn Urlaubsmodus aktiv
+            'percentage': float,         # Prozentuale Aktivierung
+            'active_count': int,         # Anzahl der Heizkörper im Urlaubsmodus
+            'total_count': int,         # Gesamtzahl der Heizkörper
+            'vacation_temp': float,      # Urlaubstemperatur
+            'heaters': list            # Detaillierte Heizkörper-Informationen
+        }
+    """
+    
+    # API initialisieren wenn nicht übergeben
+    if fritz_api is None:
+        from lib.fritzbox_api import FritzBoxAPI
+        fritz_api = FritzBoxAPI()
+        
+        # Login durchführen
+        if not fritz_api.login():
+            return {
+                'is_active': False,
+                'percentage': 0.0,
+                'active_count': 0,
+                'total_count': 0,
+                'vacation_temp': 16.0,
+                'heaters': [],
+                'error': 'Login fehlgeschlagen'
+            }
+    
+    try:
+        # Urlaubstemperatur aus Vorlage ermitteln
+        from lib.config import Config
+        config = Config()
+        vacation_on_name = config.get('templates.vacation_on', 'Urlaubsschaltung AN')
+        
+        template_xml = fritz_api.get_template_list_aha()
+        vacation_temp = None
+        
+        if template_xml:
+            templates = fritz_api.parse_template_xml(template_xml)
+            
+            # Urlaubsvorlagen finden
+            for template in templates:
+                if template['name'] == vacation_on_name:
+                    # Vorlage-Section extrahieren
+                    template_start = template_xml.find(f'identifier="{template["identifier"]}"')
+                    template_section = template_xml[template_start:template_start+1000]
+                    
+                    # Nach Temperatur in der Vorlage suchen
+                    import re
+                    temp_patterns = [
+                        r'<temperature[^>]*>([^<]*)</temperature>',
+                        r'<hkr[^>]*>([^<]*)</hkr>',
+                        r'temperature="([^"]*)"',
+                        r'hkr[^=]*="([^"]*)"',
+                        r'<hkrsoll[^>]*>([^<]*)</hkrsoll>',
+                        r'hkrsoll="([^"]*)"',
+                        r'<tsoll[^>]*>([^<]*)</tsoll>',
+                        r'tsoll="([^"]*)"'
+                    ]
+                    
+                    for pattern in temp_patterns:
+                        matches = re.findall(pattern, template_section)
+                        for match in matches:
+                            try:
+                                temp_value = float(match)
+                                # FritzBox speichert oft als *2
+                                if temp_value > 50:  # Wahrscheinlich *2 gespeichert
+                                    vacation_temp = temp_value / 2
+                                else:
+                                    vacation_temp = temp_value
+                                break
+                            except ValueError:
+                                continue
+                        if vacation_temp is not None:
+                            break
+                    break
+        
+        # Wenn keine Urlaubstemperatur gefunden, Standard verwenden
+        if vacation_temp is None:
+            # Standard-Urlaubstemperatur (kann konfiguriert werden)
+            vacation_temp = config.get('templates.vacation_temperature', 16.0)
+        
+        # Heizkörper analysieren
+        devices = fritz_api.get_devices()
+        if not devices:
+            return {
+                'is_active': False,
+                'percentage': 0.0,
+                'active_count': 0,
+                'total_count': 0,
+                'vacation_temp': vacation_temp,
+                'heaters': [],
+                'error': 'Keine Geräte gefunden'
+            }
+        
+        heaters = [device for device in devices if 'thermostat' in device]
+        heater_details = []
+        vacation_active_count = 0
+        
+        for heater in heaters:
+            name = heater.get('name', 'Unbekannt')
+            ain = heater.get('ain', '')
+            thermostat = heater.get('thermostat', {})
+            tsoll = thermostat.get('tsoll', '40')  # Standard 20°C = 40
+            tist = thermostat.get('tist', '40')
+            holiday_active = thermostat.get('holidayactive', '0')
+            
+            # Zieltemperatur umrechnen
+            try:
+                target_temp = float(tsoll) / 2
+            except (ValueError, TypeError):
+                target_temp = 20.0
+            
+            # Ist-Temperatur umrechnen
+            try:
+                actual_temp = float(tist) / 2
+            except (ValueError, TypeError):
+                actual_temp = 20.0
+            
+            # Prüfen ob Urlaubstemperatur eingestellt ist
+            is_vacation_temp = abs(target_temp - vacation_temp) < 0.5
+            
+            if is_vacation_temp:
+                vacation_active_count += 1
+            
+            heater_details.append({
+                'name': name,
+                'ain': ain,
+                'target_temp': target_temp,
+                'actual_temp': actual_temp,
+                'is_vacation': is_vacation_temp,
+                'holiday_active': holiday_active == '1'
+            })
+        
+        # Ergebnisse berechnen
+        total_heaters = len(heaters)
+        vacation_percentage = (vacation_active_count / total_heaters) * 100 if total_heaters > 0 else 0.0
+        
+        return {
+            'is_active': vacation_percentage >= 80,  # 80%+ = aktiv
+            'percentage': vacation_percentage,
+            'active_count': vacation_active_count,
+            'total_count': total_heaters,
+            'vacation_temp': vacation_temp,
+            'heaters': heater_details,
+            'error': None
+        }
+        
+    except Exception as e:
+        return {
+            'is_active': False,
+            'percentage': 0.0,
+            'active_count': 0,
+            'total_count': 0,
+            'vacation_temp': 16.0,
+            'heaters': [],
+            'error': str(e)
+        }
 
 # Funktionen hier registrieren für Admin-Mode
 # Funktionen Map{ Funk-Name: Tastertur beschriftung}
 tastertur = {'status': 'Status',
          'set_temp': 'Temperatur setzen',
+         'vacation_mode': 'Urlaubsmodus',
          'back': 'Zurueck'}
 
 # Funktionen Map{Funk-Name, Beschreiung in Help}
 textbefehl = {'status': 'Zeigt Ziel- und Ist-Temperatur aller Heizkörper an',
          'set_temp': 'Setzt die Temperatur für einen Heizkörper',
+         'vacation_mode': 'Schaltet FritzBox-Urlaubsschaltung für alle Heizkörper ein/aus',
          'back': 'Wechselt zurück ins Main-Menu'}
 
 async def status(update, context, markupList):
@@ -47,6 +215,9 @@ async def status(update, context, markupList):
     
     try:
         fritz = FritzBoxAPI()
+        
+        # Hilfsfunktion nutzen um Urlaubsstatus zu prüfen
+        vacation_status = is_vacation_active(fritz)
         
         # Konfigurations-Debug-Informationen anzeigen
         #config_info = fritz.get_config_info()
@@ -77,7 +248,16 @@ async def status(update, context, markupList):
                                           reply_markup=context.user_data.get('keyboard', markupList[STATISTICS]))
             return context.user_data.get('status', STATISTICS)
         
-        message = "🌡️ *Status aller Heizkörper:*\n\n"
+        message = "🌡️ *Temperaturen aller Heizkörper:*\n\n"
+        
+        # Urlaubsstatus in der Status-Anzeige anzeigen
+        if vacation_status['error']:
+            message += f"⚠️ Urlaubsstatus: {vacation_status['error']}\n\n"
+        else:
+            if vacation_status['is_active']:
+                message += f"🏖️ *Urlaubsmodus: AKTIV* ({vacation_status['percentage']:.1f}%)\n\n"
+            else:
+                message += f"🏠 *Urlaubsmodus: INAKTIV* ({vacation_status['percentage']:.1f}%)\n\n"
         
         for heater in heaters:
             name = heater.get('name', 'Unbekannt')
@@ -100,7 +280,15 @@ async def status(update, context, markupList):
                 else:
                     status_emoji = "❄️"
                 
-                message += f"{status_emoji} *{name}*\n"
+                # Urlaubs-Icon hinzufügen wenn im Urlaubsmodus
+                vacation_icon = ""
+                if not vacation_status['error']:
+                    for vac_heater in vacation_status['heaters']:
+                        if vac_heater['name'] == name and vac_heater['is_vacation']:
+                            vacation_icon = " 🏖️"
+                            break
+                
+                message += f"{status_emoji}{vacation_icon} *{name}*\n"
                 message += f"   Aktuell: {current_temp:.1f}°C\n"
                 message += f"   Ziel: {target_temp:.1f}°C\n"
             else:
@@ -189,6 +377,176 @@ async def set_temp(update, context, markupList):
         
     except Exception as e:
         await update.message.reply_text(f"Fehler beim Laden der Heizkörper: {str(e)}",
+                                      reply_markup=context.user_data.get('keyboard', markupList[STATISTICS]))
+    
+    return context.user_data['status']
+
+async def vacation_mode(update, context, markupList):
+    """Schaltet alle Heizkörper in den Urlaubsmodus oder zurück"""
+    bot = context.bot
+    
+    # Keyboard am Anfang setzen
+    context.user_data['keyboard'] = markupList[STATISTICS]
+    context.user_data['status'] = STATISTICS
+    
+    # Import FritzBox API
+    from lib.fritzbox_api import FritzBoxAPI
+    from lib.config import Config
+    
+    try:
+        fritz = FritzBoxAPI()
+        config = Config()
+        
+        # Vorlagennamen aus Konfiguration holen
+        vacation_on_name = config.get('templates.vacation_on', 'Urlaubsschaltung AN')
+        vacation_off_name = config.get('templates.vacation_off', 'Urlaubsschaltung AUS')
+        
+        devices = fritz.get_devices()
+        
+        if not devices:
+            await update.message.reply_text("Keine Geräte gefunden oder Verbindung zur FritzBox fehlgeschlagen.",
+                                          reply_markup=context.user_data.get('keyboard', markupList[STATISTICS]))
+            return context.user_data.get('status', STATISTICS)
+        
+        # Filter nur Heizkörper (Geräte mit Thermostat-Daten)
+        heaters = [device for device in devices if 'thermostat' in device]
+        
+        if not heaters:
+            await update.message.reply_text("Keine Heizkörper gefunden.",
+                                          reply_markup=context.user_data.get('keyboard', markupList[STATISTICS]))
+            return context.user_data.get('status', STATISTICS)
+        
+        # Prüfen ob bereits im Urlaubsmodus (Hilfsfunktion nutzen)
+        vacation_status_check = is_vacation_active(fritz)
+        vacation_active = vacation_status_check['is_active'] if not vacation_status_check['error'] else False
+        
+        # Zuerst versuchen, die Vorlagenliste über AHA-Interface zu holen
+        template_list = fritz.get_template_list_aha()
+        
+        message = f"🏖️ *FritzBox Urlaubsmodus wird umgeschaltet...*\n\n"
+        
+        if template_list:
+            # XML parsen und Vorlagen extrahieren
+            templates = fritz.parse_template_xml(template_list)
+            
+            #message += f"� *Vorlagen gefunden:* {len(templates)}\n"
+            
+            # Prüfen, ob Urlaubsvorlagen vorhanden sind
+            vacation_templates = []
+            for template in templates:
+                if template['name'] == vacation_on_name or template['name'] == vacation_off_name:
+                    vacation_templates.append(template)
+            
+            if vacation_templates:
+                #For debugging
+                #message += f"✅ *Urlaubs-Vorlagen gefunden:*\n"
+                #for template in vacation_templates:
+                #    message += f"• {template['name']} (ID: {template['id']})\n"
+                #message += f"\n"
+                
+                # Finde "AN" und "AUS" Vorlagen basierend auf Konfiguration
+                on_template = None
+                off_template = None
+                
+                for template in vacation_templates:
+                    if template['name'] == vacation_on_name:
+                        on_template = template
+                    elif template['name'] == vacation_off_name:
+                        off_template = template
+                
+                if vacation_active:
+                    # Urlaubsmodus deaktivieren
+                    message += f"🔄 *Urlaubsmodus wird beendet...*\n\n"
+                    
+                    # Verwende applytemplate mit Identifier (basierend auf unseren Erkenntnissen)
+                    if off_template:
+                        try:
+                            # Login durchführen
+                            if fritz.login():
+                                # Vorlage mit applytemplate und Identifier anwenden
+                                url = f"http://{fritz.host}:{fritz.port}/webservices/homeautoswitch.lua"
+                                params = {
+                                    'sid': fritz.sid,
+                                    'switchcmd': 'applytemplate',
+                                    'ain': off_template['identifier']  # Identifier verwenden!
+                                }
+                                
+                                response = fritz.session.get(url, params=params, timeout=10)
+                                
+                                if response.status_code == 200:
+                                    response_text = response.text.strip()
+                                    if response_text == off_template['id']:
+                                        message += f"✅ Vorlage '{off_template['name']}' erfolgreich angewendet\n"
+                                        message += f"🏠 Heizungen folgen wieder dem normalen Zeitschaltplan!"
+                                    else:
+                                        message += f"⚠️ Vorlage angewendet, aber unerwartete Antwort: {response_text}\n"
+                                        message += f"🏠 Urlaubsmodus sollte beendet sein."
+                                else:
+                                    message += f"❌ Fehler beim Anwenden der Vorlage (HTTP {response.status_code})\n"
+                            else:
+                                message += f"❌ Login bei FritzBox fehlgeschlagen\n"
+                        except Exception as e:
+                            message += f"❌ Fehler bei Vorlagen-Anwendung: {str(e)}\n"
+                    else:
+                        message += f"❌ Keine 'AUS'-Urlaubsvorlage gefunden\n"
+                        message += f"💡 Bitte erstelle 'Urlaubsschaltung AUS' Vorlage in der FritzBox\n"
+                        message += f"📖 Anleitung: https://fritzhelp.avm.de/help/de/FRITZ-Box-6890-LTE/avm/021/hilfe_vorlage_hkr_urlaubsschaltung\n"
+                        message += f"⚙️ Konfiguriere den Namen in config.json unter 'templates.vacation_off'"
+                else:
+                    # Urlaubsmodus aktivieren
+                    message += f"🏖️ *Urlaubsmodus wird aktiviert...*\n\n"
+                    
+                    # Verwende applytemplate mit Identifier (basierend auf unseren Erkenntnissen)
+                    if on_template:
+                        try:
+                            # Login durchführen
+                            if fritz.login():
+                                # Vorlage mit applytemplate und Identifier anwenden
+                                url = f"http://{fritz.host}:{fritz.port}/webservices/homeautoswitch.lua"
+                                params = {
+                                    'sid': fritz.sid,
+                                    'switchcmd': 'applytemplate',
+                                    'ain': on_template['identifier']  # Identifier verwenden!
+                                }
+                                
+                                response = fritz.session.get(url, params=params, timeout=10)
+                                
+                                if response.status_code == 200:
+                                    response_text = response.text.strip()
+                                    if response_text == on_template['id']:
+                                        message += f"✅ Vorlage '{on_template['name']}' erfolgreich angewendet\n"
+                                        message += f"🏖️ Alle Heizkörper befinden sich jetzt im Urlaubsmodus!"
+                                    else:
+                                        message += f"⚠️ Vorlage angewendet, aber unerwartete Antwort: {response_text}\n"
+                                        message += f"🏖️ Urlaubsmodus sollte aktiviert sein."
+                                else:
+                                    message += f"❌ Fehler beim Anwenden der Vorlage (HTTP {response.status_code})\n"
+                            else:
+                                message += f"❌ Login bei FritzBox fehlgeschlagen\n"
+                        except Exception as e:
+                            message += f"❌ Fehler bei Vorlagen-Anwendung: {str(e)}\n"
+                    else:
+                        message += f"❌ Keine 'AN'-Urlaubsvorlage gefunden\n"
+                        message += f"💡 Bitte erstelle 'Urlaubsschaltung AN' Vorlage in der FritzBox\n"
+                        message += f"📖 Anleitung: https://fritzhelp.avm.de/help/de/FRITZ-Box-6890-LTE/avm/021/hilfe_vorlage_hkr_urlaubsschaltung\n"
+                        message += f"⚙️ Konfiguriere den Namen in config.json unter 'templates.vacation_on'"
+            else:
+                message += f"❌ Keine Urlaubs-Vorlagen gefunden\n"
+                message += f"💡 Bitte erstelle Urlaubsvorlagen in der FritzBox-Oberfläche\n"
+                message += f"📖 Anleitung: https://fritzhelp.avm.de/help/de/FRITZ-Box-6890-LTE/avm/021/hilfe_vorlage_hkr_urlaubsschaltung\n"
+                message += f"⚙️ Konfiguriere die Namen in config.json unter 'templates.vacation_on' und 'templates.vacation_off'"
+        else:
+            message += f"❌ Keine Vorlagen über AHA-Interface gefunden\n"
+            message += f"💡 Bitte überprüfe, ob Vorlagen in der FritzBox-Oberfläche erstellt wurden\n"
+            message += f"🔧 Stelle sicher, dass die Vorlagen für Heizkörper konfiguriert sind\n"
+            message += f"📖 Anleitung: https://fritzhelp.avm.de/help/de/FRITZ-Box-6890-LTE/avm/021/hilfe_vorlage_hkr_urlaubsschaltung\n"
+            message += f"⚙️ Konfiguriere die Namen in config.json unter 'templates.vacation_on' und 'templates.vacation_off'"
+        
+        await update.message.reply_text(message, parse_mode='Markdown',
+                                      reply_markup=context.user_data.get('keyboard', markupList[STATISTICS]))
+        
+    except Exception as e:
+        await update.message.reply_text(f"Fehler beim Umschalten des Urlaubsmodus: {str(e)}",
                                       reply_markup=context.user_data.get('keyboard', markupList[STATISTICS]))
     
     return context.user_data['status']
@@ -288,10 +646,29 @@ async def handle_temp_callback(update, context):
             success = fritz.set_temperature(ain, temp_celsius)
             
             if success:
-                await query.edit_message_text(f"✅ *Temperatur erfolgreich gesetzt!*\n\n"
-                                            f"🏠 {heater_name}\n"
-                                            f"🌡️ Neue Zieltemperatur: {temp_celsius:.1f}°C",
-                                            parse_mode='Markdown')
+                # Timer-Informationen für die nächste Temperaturänderung holen
+                next_change = fritz.get_next_timer_change(ain, temp_celsius)
+                
+                success_message = f"✅ *Temperatur erfolgreich gesetzt!*\n\n"
+                success_message += f"🏠 {heater_name}\n"
+                success_message += f"🌡️ Neue Zieltemperatur: {temp_celsius:.1f}°C"
+                
+                if next_change:
+                    time_str = next_change['time'].strftime("%H:%M")
+                    next_temp = next_change['temp']
+                    
+                    if next_change.get('is_today', True):
+                        success_message += f"\n\n⏰ *Gültig bis:* {time_str} Uhr"
+                        success_message += f"\n🔄 *Anschließend:* {next_temp:.1f}°C (gemäß Zeitplan)"
+                    else:
+                        # Nächste Änderung ist morgen
+                        tomorrow_name = next_change['datetime'].strftime("%A")
+                        success_message += f"\n\n⏰ *Gültig bis morgen, {tomorrow_name} {time_str} Uhr*"
+                        success_message += f"\n🔄 *Anschließend:* {next_temp:.1f}°C (gemäß Zeitplan)"
+                else:
+                    success_message += f"\n\nℹ️ Keine weiteren Zeitplanänderungen gefunden"
+                
+                await query.edit_message_text(success_message, parse_mode='Markdown')
             else:
                 await query.edit_message_text(f"❌ *Fehler beim Setzen der Temperatur!*\n\n"
                                             f"🏠 {heater_name}\n"

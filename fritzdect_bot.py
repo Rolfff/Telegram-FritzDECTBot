@@ -22,11 +22,14 @@ db = UserDatabase()
 
 # Textbefehle für MAIN-Status (da modeList[MAIN] = None)
 main_textbefehl = {
+    'start': 'Bot starten und Login einleiten',
     'help': 'Diese Hilfe anzeigen',
+    'letsgo': 'Rechte überprüfen und fortfahren',
     'logout': 'Ausloggen',
-    'temperatur setzen': 'Temperatur eines Heizkörpers setzen',
-    'sensor': 'Alle FritzBox Geräte und deren Temperaturen anzeigen',
+    'bye': 'Bot beenden',
+    'heizung': 'Alle Heizkörper und deren Temperaturen anzeigen',
     'geraete': 'Alle FritzBox Geräte und deren Temperaturen anzeigen',
+    'vacation_mode': 'Schaltet FritzBox-Urlaubsschaltung für alle Heizkörper ein/aus',
     'admin': 'Aktiviert den Admin-Modus (nur Admin)'
 }
 
@@ -264,8 +267,10 @@ async def async_main():
                 CommandHandler('temperatur', lambda update, context: StatistikMode.set_temp(update, context, markupList)),
                 MessageHandler(filters.Regex('^(Logout)$'), done),
                 CommandHandler('logout', done),
-                MessageHandler(filters.Regex('^(Sensor)$'), lambda update, context: StatistikMode.status(update, context, markupList)),
-                CommandHandler('Sensor', lambda update, context: StatistikMode.status(update, context, markupList)),
+#TODO pers. Config zb Batterien anzeigen, PushNoti bei Änderungen von anderen, Absenk temp bei Urlaub...                MessageHandler(filters.Regex('^(Einstellungen)$'), lambda update, context: ConfigMode.status(update, context, markupList)),
+#                CommandHandler('Einstellungen', lambda update, context: ConfigMode.status(update, context, markupList)),
+                MessageHandler(filters.Regex('^(Heizung)$'), lambda update, context: StatistikMode.status(update, context, markupList)),
+                CommandHandler('Heizung', lambda update, context: StatistikMode.status(update, context, markupList)),
                 CommandHandler('admin', switchToAdminModus),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message),
                 MessageHandler(filters.COMMAND, unknown_command),
