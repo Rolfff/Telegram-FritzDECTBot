@@ -263,8 +263,10 @@ async def async_main():
             MAIN: [
                 MessageHandler(filters.Regex('^(Geräte)$'), done),
                 CommandHandler('geraete', done),
-                MessageHandler(filters.Regex('^(Temperatur)'), lambda update, context: StatistikMode.set_temp(update, context, markupList)),
+                MessageHandler(filters.Regex('^(Temperatur)$'), lambda update, context: StatistikMode.set_temp(update, context, markupList)),
                 CommandHandler('temperatur', lambda update, context: StatistikMode.set_temp(update, context, markupList)),
+                MessageHandler(filters.Regex('^(Temp\\.-Verlauf)$'), lambda update, context: StatistikMode.temp_history(update, context, markupList)),
+                CommandHandler('temp_history', lambda update, context: StatistikMode.temp_history(update, context, markupList)),
                 MessageHandler(filters.Regex('^(Logout)$'), done),
                 CommandHandler('logout', done),
 #TODO pers. Config zb Batterien anzeigen, PushNoti bei Änderungen von anderen, Absenk temp bei Urlaub...                MessageHandler(filters.Regex('^(Einstellungen)$'), lambda update, context: ConfigMode.status(update, context, markupList)),

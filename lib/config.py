@@ -64,7 +64,7 @@ MAIN, LOGIN, ADMIN, STATISTICS = range(4)
 modeList = [None, None, None, None]
 
 # Tastatur-Layouts
-reply_keyboard_main = [['Geräte', 'Temperatur setzen', 'Logout'],['Sensor']]
+reply_keyboard_main = [['Geräte', 'Temperatur setzen', 'Logout'],['Heizung','Einstellungen']]
 
 def genMarkupList():
     """Generiert die MarkupList für alle Modi"""

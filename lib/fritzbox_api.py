@@ -580,3 +580,661 @@ class FritzBoxAPI:
             if device['ain'] == ain:
                 return device['name']
         return ain
+    
+    def set_vacation_mode(self, ain, start_date, end_date, active=True):
+        """Setzt den Urlaubsmodus für ein Gerät über die FritzBox API"""
+        # Zuerst sicherstellen, dass wir eingeloggt sind
+        if not self.sid or self.sid == "0000000000000000":
+            if not self.login():
+                return False
+        
+        # URL für Urlaubsschaltung mit Szenario
+        vacation_url = f"http://{self.host}:{self.port}/webservices/homeautoswitch.lua"
+        
+        if active:
+            # Urlaubsszenario erstellen/aktivieren
+            params = {
+                'sid': self.sid,
+                'ain': ain,
+                'switchcmd': 'sethkrholiday',
+                'param': f'{start_date},{end_date}'  # Format: TT.MM.JJJJ,TT.MM.JJJJ
+            }
+        else:
+            # Urlaubsszenario deaktivieren
+            params = {
+                'sid': self.sid,
+                'ain': ain,
+                'switchcmd': 'sethkrholiday',
+                'param': ''  # Leerer Parameter deaktiviert das Szenario
+            }
+        
+        try:
+            response = self.session.get(vacation_url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            return response.status_code == 200
+            
+        except requests.exceptions.RequestException as e:
+            return False
+        except Exception as e:
+            return False
+    
+    def create_vacation_template(self, template_name, active=True):
+        """Erstellt eine FritzBox-Urlaubsvorlage gemäß AVM-Dokumentation"""
+        if not self.sid or self.sid == "0000000000000000":
+            if not self.login():
+                return False
+        
+        url = f"http://{self.host}:{self.port}/webservices/homeautoswitch.lua"
+        
+        if active:
+            # Vorlage 1: Urlaubsschaltung aktivieren (1.1. - 31.12.)
+            params = {
+                'sid': self.sid,
+                'switchcmd': 'sethkrholiday',
+                'param': '01.01.,00:00,31.12.,23:00'  # Format laut AVM-Doku
+            }
+            
+            print(f"=== FritzBox Urlaubsvorlage erstellen (aktiv) ===")
+            print(f"Vorlage: {template_name}")
+            print(f"Parameter: {params['param']}")
+            
+        else:
+            # Vorlage 2: Urlaubsschaltung deaktivieren (keine Zeiträume)
+            params = {
+                'sid': self.sid,
+                'switchcmd': 'sethkrholiday',
+                'param': ''  # Leere Parameter löschen alle Urlaubszeiträume
+            }
+            
+            print(f"=== FritzBox Urlaubsvorlage erstellen (deaktiv) ===")
+            print(f"Vorlage: {template_name}")
+        
+        try:
+            response = self.session.get(url, params=params, timeout=10)
+            
+            print(f"URL: {url}")
+            print(f"Params: {params}")
+            print(f"Status: {response.status_code}")
+            print(f"Response: {response.text}")
+            
+            if response.status_code == 200:
+                response_text = response.text.strip()
+                if response_text == "OK" or response_text == "" or "error" not in response_text.lower():
+                    print(f"✅ Urlaubsvorlage '{template_name}' erfolgreich erstellt")
+                    return True
+                else:
+                    print(f"❌ Fehler in Antwort: {response_text}")
+                    return False
+            else:
+                print(f"❌ HTTP-Fehler: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Exception bei Urlaubsvorlage: {e}")
+            return False
+    
+    def apply_vacation_template(self, template_id):
+        """Wendet eine erstellte Urlaubsvorlage an"""
+        if not self.sid or self.sid == "0000000000000000":
+            if not self.login():
+                return False
+        
+        url = f"http://{self.host}:{self.port}/webservices/homeautoswitch.lua"
+        
+        params = {
+            'sid': self.sid,
+            'switchcmd': 'applytemplate',
+            'param': template_id
+        }
+        
+        try:
+            response = self.session.get(url, params=params, timeout=10)
+            
+            print(f"Vorlage anwenden - Status: {response.status_code}")
+            print(f"Vorlage anwenden - Response: {response.text}")
+            
+            return response.status_code == 200
+            
+        except Exception as e:
+            print(f"Fehler beim Anwenden der Vorlage: {e}")
+            return False
+    
+    def get_basic_device_stats(self, ain):
+        """Ruft grundlegende Gerätestatistiken über getbasicdevicestats ab
+        
+        Args:
+            ain (str): Die AIN des Geräts (erforderlich)
+            
+        Returns:
+            dict: Geparste Statistikdaten oder None bei Fehler
+        """
+        # Zuerst sicherstellen, dass wir eingeloggt sind
+        if not self.sid or self.sid == "0000000000000000":
+            if not self.login():
+                return None
+        
+        if not ain:
+            print("AIN ist erforderlich für getbasicdevicestats")
+            return None
+        
+        stats_url = f"http://{self.host}:{self.port}/webservices/homeautoswitch.lua"
+        params = {
+            'sid': self.sid,
+            'switchcmd': 'getbasicdevicestats',
+            'ain': ain
+        }
+        
+        try:
+            response = self.session.get(stats_url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            if response.status_code == 200:
+                return self.parse_basic_device_stats(response.text, ain)
+            else:
+                return None
+                
+        except requests.exceptions.RequestException as e:
+            print(f"Fehler bei getbasicdevicestats: {e}")
+            return None
+        except Exception as e:
+            print(f"Allgemeiner Fehler bei getbasicdevicestats: {e}")
+            return None
+    
+    def parse_basic_device_stats(self, xml_data, ain):
+        """Parst die XML-Antwort von getbasicdevicestats"""
+        try:
+            import datetime
+            import re
+            
+            # Debug: Zeige die XML-Struktur
+            print(f"DEBUG XML-Struktur: {xml_data[:200]}...")
+            
+            # Die XML-Antwort ist oft nicht wohlgeformt, wir verwenden Regex zum Parsen
+            device_stats = {}
+            
+            # Stats-Attribute extrahieren
+            stats_pattern = r'<stats[^>]*count="(\d+)"[^>]*grid="(\d+)"[^>]*datatime="(\d+)"'
+            stats_match = re.search(stats_pattern, xml_data)
+            
+            if stats_match:
+                device_stats['count'] = int(stats_match.group(1))
+                device_stats['grid'] = int(stats_match.group(2))
+                device_stats['datatime'] = datetime.datetime.fromtimestamp(int(stats_match.group(3)))
+            
+            # Datenpunkte extrahieren (alles zwischen > und <)
+            data_pattern = r'<stats[^>]*>([^<]*)</stats>'
+            data_match = re.search(data_pattern, xml_data)
+            
+            if data_match:
+                data_text = data_match.group(1).strip()
+                data_points = []
+                for item in data_text.split(","):
+                    try:
+                        data_points.append(int(item))
+                    except ValueError:
+                        data_points.append(None)  # Fehlende Daten
+                device_stats["data"] = data_points
+            
+            return device_stats
+            
+        except Exception as e:
+            print(f"Fehler beim Parsen der Stats-Daten: {e}")
+            return {}
+    
+    def get_temperature_history(self, ain, hours=24):
+        """Holt die Temperaturhistorie für ein Gerät und bereitet sie auf
+        
+        Args:
+            ain (str): Die AIN des Geräts
+            hours (int): Anzahl der Stunden für die Analyse (Standard: 24)
+            
+        Returns:
+            dict: Aufbereitete Temperaturdaten mit Statistiken
+        """
+        stats = self.get_basic_device_stats(ain)
+        if not stats:
+            return None
+        
+        # Daten aufbereiten
+        data_points = stats.get('data', [])
+        grid_seconds = stats.get('grid', 900)  # Standard: 15 Minuten
+        datatime = stats.get('datatime')
+        
+        # Filtere None-Werte
+        valid_data = [x for x in data_points if x is not None]
+        
+        if not valid_data:
+            return None
+        
+        # Temperaturen umrechnen (FritzBox speichert oft als °C * 2)
+        temperatures = []
+        for temp in valid_data:
+            # Bei den Testdaten sehen wir Werte wie 215, 210, etc. -> das sind °C * 10
+            if temp > 100:  # Wahrscheinlich *10 gespeichert
+                temperatures.append(temp / 10)
+            else:
+                temperatures.append(temp)
+        
+        # Statistiken berechnen
+        result = {
+            'ain': ain,
+            'device_name': self.get_device_name(ain),
+            'total_points': len(data_points),
+            'valid_points': len(valid_data),
+            'grid_seconds': grid_seconds,
+            'last_update': datatime,
+            'temperatures_celsius': temperatures,
+            'min_temp': min(temperatures),
+            'max_temp': max(temperatures),
+            'avg_temp': sum(temperatures) / len(temperatures),
+            'current_temp': temperatures[-1] if temperatures else None,
+            'time_range_hours': len(valid_data) * grid_seconds / 3600
+        }
+        
+        return result
+
+    def apply_template_direct_on_devices(self, template_name, activate=True):
+        """Wendet eine Vorlage direkt auf die konfigurierten Geräte an"""
+        if not self.sid or self.sid == "0000000000000000":
+            if not self.login():
+                return False
+        
+        url = f"http://{self.host}:{self.port}/webservices/homeautoswitch.lua"
+        
+        # Zuerst die Vorlagenliste holen
+        template_list = self.get_template_list_aha()
+        if not template_list:
+            return False
+        
+        # Finde die spezifische Vorlage und extrahiere Geräte-IDs
+        import re
+        template_pattern = rf'<template[^>]*><name>{re.escape(template_name)}</name>.*?</template>'
+        template_match = re.search(template_pattern, template_list, re.DOTALL)
+        
+        if not template_match:
+            print(f"❌ Vorlage '{template_name}' nicht gefunden")
+            return False
+        
+        template_xml = template_match.group(0)
+        
+        # Extrahiere Geräte-IDs
+        device_pattern = r'<device identifier="([^"]*)"'
+        device_ids = re.findall(device_pattern, template_xml)
+        
+        if not device_ids:
+            print(f"❌ Keine Geräte in Vorlage '{template_name}' gefunden")
+            return False
+        
+        print(f"🔍 Vorlage '{template_name}' - Geräte: {device_ids}")
+        
+        success_count = 0
+        
+        for device_id in device_ids:
+            try:
+                if activate:
+                    # Urlaub aktivieren - Versuche verschiedene Methoden
+                    methods = [
+                        # Methode 1: sethkrholiday mit ganzjährigem Zeitraum
+                        {
+                            'sid': self.sid,
+                            'switchcmd': 'sethkrholiday',
+                            'ain': device_id,
+                            'param': '01.01.,00:00,31.12.,23:00'
+                        },
+                        
+                        # Methode 2: sethkrholidayactive
+                        {
+                            'sid': self.sid,
+                            'switchcmd': 'sethkrholidayactive',
+                            'ain': device_id,
+                            'param': '1'
+                        },
+                        
+                        # Methode 3: sethkrtsoll auf niedrige Temperatur (16°C)
+                        {
+                            'sid': self.sid,
+                            'switchcmd': 'sethkrtsoll',
+                            'ain': device_id,
+                            'param': '32'  # 16°C
+                        }
+                    ]
+                else:
+                    # Urlaub deaktivieren
+                    methods = [
+                        # Methode 1: sethkrholiday leer
+                        {
+                            'sid': self.sid,
+                            'switchcmd': 'sethkrholiday',
+                            'ain': device_id,
+                            'param': ''
+                        },
+                        
+                        # Methode 2: sethkrholidayactive ausschalten
+                        {
+                            'sid': self.sid,
+                            'switchcmd': 'sethkrholidayactive',
+                            'ain': device_id,
+                            'param': '0'
+                        },
+                        
+                        # Methode 3: sethkrtsoll auf normale Temperatur (20°C)
+                        {
+                            'sid': self.sid,
+                            'switchcmd': 'sethkrtsoll',
+                            'ain': device_id,
+                            'param': '40'  # 20°C
+                        }
+                    ]
+                
+                for i, params in enumerate(methods):
+                    response = self.session.get(url, params=params, timeout=10)
+                    
+                    print(f"Gerät {device_id} - Methode {i+1}: {params['switchcmd']} - Status {response.status_code}")
+                    
+                    if response.status_code == 200:
+                        success_count += 1
+                        print(f"✅ Gerät {device_id} erfolgreich (Methode {i+1})")
+                        break
+                        
+            except Exception as e:
+                print(f"❌ Exception bei Gerät {device_id}: {e}")
+                continue
+        
+        print(f"Ergebnis: {success_count}/{len(device_ids)} Geräte erfolgreich")
+        return success_count > 0
+    
+    def parse_template_xml(self, xml_content):
+        """Parst die XML-Vorlagenliste und extrahiert relevante Informationen"""
+        import re
+        
+        templates = []
+        
+        # Extrahiere Template-Informationen mit Regex
+        template_pattern = r'<template[^>]*identifier="([^"]*)"[^>]*id="([^"]*)"[^>]*><name>([^<]*)</name>'
+        
+        matches = re.findall(template_pattern, xml_content)
+        
+        for match in matches:
+            template_id, template_id_num, template_name = match
+            templates.append({
+                'identifier': template_id,
+                'id': template_id_num,
+                'name': template_name.strip()
+            })
+        
+        return templates
+    
+    def get_template_list_aha(self):
+        """Holt die Vorlagenliste über das AHA-HTTP-Interface"""
+        if not self.sid or self.sid == "0000000000000000":
+            if not self.login():
+                return None
+        
+        url = f"http://{self.host}:{self.port}/webservices/homeautoswitch.lua"
+        
+        # Versuche beide möglichen Befehle
+        commands = [
+            ('gettemplatelist', ''),
+            ('gettemplatelistinfos', '')
+        ]
+        
+        for cmd, param in commands:
+            try:
+                params = {
+                    'sid': self.sid,
+                    'switchcmd': cmd
+                }
+                if param:
+                    params['param'] = param
+                
+                response = self.session.get(url, params=params, timeout=10)
+                
+                print(f"{cmd}: Status {response.status_code}")
+                print(f"Response: {response.text}")
+                
+                if response.status_code == 200 and response.text.strip():
+                    return response.text.strip()
+                    
+            except Exception as e:
+                print(f"Fehler bei {cmd}: {e}")
+                continue
+        
+        return None
+    
+    def create_vacation_scenarios(self):
+        """Erstellt Szenarien für manuelle Urlaubsvorlagen"""
+        if not self.sid or self.sid == "0000000000000000":
+            if not self.login():
+                return False
+        
+        url = f"http://{self.host}:{self.port}/webservices/homeautoswitch.lua"
+        
+        # Szenario 1: Urlaub aktivieren
+        scenario1_params = {
+            'sid': self.sid,
+            'switchcmd': 'createscenario',
+            'param': 'Urlaub aktivieren,Urlaubsschaltung'
+        }
+        
+        # Szenario 2: Urlaub deaktivieren
+        scenario2_params = {
+            'sid': self.sid,
+            'switchcmd': 'createscenario',
+            'param': 'Urlaub deaktivieren,Urlaubsschaltung aus'
+        }
+        
+        scenarios_created = 0
+        
+        try:
+            # Beide Szenarien erstellen
+            for name, params in [("Urlaub aktivieren", scenario1_params), ("Urlaub deaktivieren", scenario2_params)]:
+                response = self.session.get(url, params=params, timeout=10)
+                print(f"Szenario '{name}' - Status: {response.status_code}")
+                if response.status_code == 200:
+                    scenarios_created += 1
+                    print(f"✅ {name} erstellt")
+            
+            return scenarios_created == 2
+            
+        except Exception as e:
+            print(f"❌ Fehler bei Szenarien: {e}")
+            return False
+    
+    def apply_vacation_scenario(self, active=True):
+        """Wendet Urlaubsszenario an"""
+        if not self.sid or self.sid == "0000000000000000":
+            if not self.login():
+                return False
+        
+        url = f"http://{self.host}:{self.port}/webservices/homeautoswitch.lua"
+        
+        scenario_name = "Urlaub aktivieren" if active else "Urlaub deaktivieren"
+        params = {
+            'sid': self.sid,
+            'switchcmd': 'applyscenario',
+            'param': scenario_name
+        }
+        
+        try:
+            response = self.session.get(url, params=params, timeout=10)
+            print(f"Szenario '{scenario_name}' - Status: {response.status_code}")
+            return response.status_code == 200
+            
+        except Exception as e:
+            print(f"❌ Fehler bei Szenario: {e}")
+            return False
+    
+    def get_vacation_template_info(self):
+        """Holt Informationen über die aktuelle Urlaubsvorlage"""
+        if not self.sid or self.sid == "0000000000000000":
+            if not self.login():
+                return None
+        
+        url = f"http://{self.host}:{self.port}/webservices/homeautoswitch.lua"
+        
+        params = {
+            'sid': self.sid,
+            'switchcmd': 'gethkrholiday'
+        }
+        
+        try:
+            response = self.session.get(url, params=params, timeout=10)
+            
+            print(f"gethkrholiday Status: {response.status_code}")
+            print(f"gethkrholiday Response: {response.text}")
+            
+            if response.status_code == 200:
+                return response.text.strip()
+            return None
+            
+        except Exception as e:
+            print(f"Fehler bei gethkrholiday: {e}")
+            return None
+    
+    def get_vacation_status(self, ain):
+        """Prüft den Urlaubsstatus für ein Gerät"""
+        # Zuerst sicherstellen, dass wir eingeloggt sind
+        if not self.sid or self.sid == "0000000000000000":
+            if not self.login():
+                return None
+        
+        # URL für Urlaubstatus
+        vacation_url = f"http://{self.host}:{self.port}/webservices/homeautoswitch.lua"
+        
+        params = {
+            'sid': self.sid,
+            'ain': ain,
+            'switchcmd': 'gethkrholidayactive'
+        }
+        
+        try:
+            response = self.session.get(vacation_url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            if response.status_code == 200:
+                # Antwort ist normalerweise "1" für aktiv, "0" für inaktiv
+                return response.text.strip() == "1"
+            return None
+            
+        except requests.exceptions.RequestException as e:
+            return None
+        except Exception as e:
+            return None
+    
+    def get_timer_info(self, ain):
+        """Holt Timer-Informationen für ein Gerät (nächste Schaltzeiten)"""
+        # Zuerst sicherstellen, dass wir eingeloggt sind
+        if not self.sid or self.sid == "0000000000000000":
+            if not self.login():
+                return None
+        
+        # URL für Timer-Informationen
+        timer_url = f"http://{self.host}:{self.port}/webservices/homeautoswitch.lua"
+        
+        params = {
+            'sid': self.sid,
+            'ain': ain,
+            'switchcmd': 'gettimer'
+        }
+        
+        try:
+            response = self.session.get(timer_url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            if response.status_code == 200:
+                # Timer-XML parsen
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(response.text)
+                
+                timer_info = []
+                for timer in root.findall('timer'):
+                    timer_data = {
+                        'weekday': timer.get('weekday'),
+                        'hour': timer.get('hour'),
+                        'minute': timer.get('minute'),
+                        'temp': timer.get('temp'),
+                        'active': timer.get('active', '1') == '1'
+                    }
+                    timer_info.append(timer_data)
+                
+                return timer_info
+            return None
+            
+        except requests.exceptions.RequestException as e:
+            return None
+        except Exception as e:
+            return None
+    
+    def get_next_timer_change(self, ain, current_temp=None):
+        """Berechnet die nächste Temperaturänderung basierend auf dem Timer"""
+        import datetime
+        
+        timer_info = self.get_timer_info(ain)
+        if not timer_info:
+            return None
+        
+        now = datetime.datetime.now()
+        current_weekday = str(now.weekday())  # 0=Montag, 6=Sonntag
+        current_time = now.time()
+        
+        next_change = None
+        min_diff = float('inf')
+        
+        # Zuerst nach heutigen Timern suchen
+        for timer in timer_info:
+            if not timer['active']:
+                continue
+                
+            try:
+                timer_hour = int(timer['hour'])
+                timer_minute = int(timer['minute'])
+                timer_time = datetime.time(timer_hour, timer_minute)
+                
+                # Prüfen, ob der Timer heute noch aktiv wird
+                if timer['weekday'] == current_weekday and timer_time > current_time:
+                    timer_datetime = datetime.datetime.combine(now.date(), timer_time)
+                    diff = (timer_datetime - now).total_seconds()
+                    if diff < min_diff:
+                        min_diff = diff
+                        next_change = {
+                            'time': timer_time,
+                            'temp': float(timer['temp']) / 2,  # FritzBox speichert in 0.5°C Schritten
+                            'datetime': timer_datetime,
+                            'is_today': True
+                        }
+                        
+            except (ValueError, TypeError):
+                continue
+        
+        # Wenn heute nichts gefunden, nach morgen suchen
+        if next_change is None:
+            tomorrow = now + datetime.timedelta(days=1)
+            tomorrow_weekday = str(tomorrow.weekday())
+            
+            for timer in timer_info:
+                if not timer['active']:
+                    continue
+                    
+                try:
+                    timer_hour = int(timer['hour'])
+                    timer_minute = int(timer['minute'])
+                    timer_time = datetime.time(timer_hour, timer_minute)
+                    
+                    # Prüfen, ob der Timer morgen aktiv wird
+                    if timer['weekday'] == tomorrow_weekday:
+                        timer_datetime = datetime.datetime.combine(tomorrow.date(), timer_time)
+                        diff = (timer_datetime - now).total_seconds()
+                        if diff < min_diff:
+                            min_diff = diff
+                            next_change = {
+                                'time': timer_time,
+                                'temp': float(timer['temp']) / 2,
+                                'datetime': timer_datetime,
+                                'is_today': False
+                            }
+                            
+                except (ValueError, TypeError):
+                    continue
+        
+        return next_change

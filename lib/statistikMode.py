@@ -21,7 +21,7 @@ config = config_module.Config()
 from lib.config import genMarkupList, LOGIN, MAIN, ADMIN, STATISTICS, Config
 # markupList wird zur Laufzeit generiert, nicht beim Import
 markupList = None
-# TODO: Temperaturverlauf anzeigen lassen. Gruppen-funktionen beachten (Absenk-/Komfortemperatur, Zeitplan edit)???
+# TODO: Gruppen-funktionen beachten (Absenk-/Komfortemperatur, Zeitplan edit)???
 # TODO: Adminmode Testen!!! Alle Scenaren und Vorlagen ausführen lassen. in extra Mode.
 
 def is_vacation_active(fritz_api=None):
@@ -194,12 +194,14 @@ def is_vacation_active(fritz_api=None):
 # Funktionen Map{ Funk-Name: Tastertur beschriftung}
 tastertur = {'status': 'Status',
          'set_temp': 'Temperatur setzen',
+         'temp_history': 'Temp.-Verlauf',
          'vacation_mode': 'Urlaubsmodus',
          'back': 'Zurueck'}
 
 # Funktionen Map{Funk-Name, Beschreiung in Help}
 textbefehl = {'status': 'Zeigt Ziel- und Ist-Temperatur aller Heizkörper an',
          'set_temp': 'Setzt die Temperatur für einen Heizkörper',
+         'temp_history': 'Zeigt Temperaturverlauf aller Heizungen der letzten 24 Stunden als Graphik an',
          'vacation_mode': 'Schaltet FritzBox-Urlaubsschaltung für alle Heizkörper ein/aus',
          'back': 'Wechselt zurück ins Main-Menu'}
 
@@ -547,6 +549,162 @@ async def vacation_mode(update, context, markupList):
         
     except Exception as e:
         await update.message.reply_text(f"Fehler beim Umschalten des Urlaubsmodus: {str(e)}",
+                                      reply_markup=context.user_data.get('keyboard', markupList[STATISTICS]))
+    
+    return context.user_data['status']
+
+async def temp_history(update, context, markupList):
+    """Zeigt den Temperaturverlauf aller Heizungen der letzten 24 Stunden als Graphik an"""
+    # Keyboard am Anfang setzen
+    context.user_data['keyboard'] = markupList[STATISTICS]
+    context.user_data['status'] = STATISTICS
+    
+    # Import FritzBox API
+    from lib.fritzbox_api import FritzBoxAPI
+    
+    try:
+        # Ladebalken-Nachricht senden
+        loading_message = await update.message.reply_text("📊 Lade Temperaturverlauf...", 
+                                                     reply_markup=context.user_data.get('keyboard', markupList[STATISTICS]))
+        
+        fritz = FritzBoxAPI()
+        
+        # Login durchführen
+        if not fritz.test_credentials():
+            await loading_message.edit_text("❌ Login bei FritzBox fehlgeschlagen.")
+            return context.user_data.get('status', STATISTICS)
+        
+        if not fritz.login():
+            await loading_message.edit_text("❌ Session bei FritzBox fehlgeschlagen.")
+            return context.user_data.get('status', STATISTICS)
+        
+        # Geräte abrufen
+        devices = fritz.get_devices()
+        if not devices:
+            await loading_message.edit_text("❌ Keine Geräte gefunden.")
+            return context.user_data.get('status', STATISTICS)
+        
+        # Heizkörper filtern
+        heaters = [device for device in devices if 'thermostat' in device]
+        if not heaters:
+            await loading_message.edit_text("❌ Keine Heizkörper gefunden.")
+            return context.user_data.get('status', STATISTICS)
+        
+        # Temperaturhistorien für alle Heizkörper sammeln
+        all_histories = []
+        successful_analyses = 0
+        
+        for heater in heaters:
+            name = heater.get('name', 'Unbekannt')
+            ain = heater.get('ain', '')
+            
+            # Historie abrufen
+            history = fritz.get_temperature_history(ain)
+            if history and history.get('temperatures_celsius'):
+                all_histories.append({
+                    'name': name,
+                    'ain': ain,
+                    'temperatures': history['temperatures_celsius'],
+                    'current_temp': history['current_temp'],
+                    'min_temp': history['min_temp'],
+                    'max_temp': history['max_temp'],
+                    'avg_temp': history['avg_temp']
+                })
+                successful_analyses += 1
+        
+        if not all_histories:
+            await loading_message.edit_text("❌ Keine Temperaturverlaufsdaten verfügbar.")
+            return context.user_data.get('status', STATISTICS)
+        
+        # Graphik erstellen
+        try:
+            import matplotlib
+            matplotlib.use('Agg')  # Non-interactive backend
+            import matplotlib.pyplot as plt
+            import matplotlib.dates as mdates
+            from datetime import datetime, timedelta
+            import io
+            
+            # Figur erstellen
+            plt.figure(figsize=(14, 8))
+            plt.style.use('seaborn-v0_8' if hasattr(plt.style, 'seaborn-v0_8') else 'default')
+            
+            # Zeitachse erstellen (96 Datenpunkte im 15-Minuten-Intervall = 24 Stunden)
+            end_time = datetime.now()
+            time_points = [end_time - timedelta(minutes=15*i) for i in range(95, -1, -1)]
+            
+            # Farben für verschiedene Heizkörper (kräftigere Farben)
+            colors = ['#FF4444', '#00AA00', '#0066CC', '#FF8800', '#AA00FF', '#00CCCC', '#FF1493', '#FFD700']
+            
+            # Jeden Heizkörper plotten
+            for i, history in enumerate(all_histories):
+                color = colors[i % len(colors)]
+                temps = history['temperatures']
+                
+                # Plot mit Linie und Markern
+                plt.plot(time_points, temps, 
+                        label=f"{history['name']} ({history['current_temp']:.1f}°C)",
+                        color=color, linewidth=2, marker='o', markersize=3, alpha=0.8)
+            
+            # Graphik formatieren
+            current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+            plt.title(f'Temperaturverlauf aller Heizkörper - letzte 24 Stunden\n{successful_analyses}/{len(heaters)} Heizkörper mit Daten', 
+                     fontsize=16, fontweight='bold', pad=20)
+            plt.xlabel('Zeit', fontsize=12)
+            plt.ylabel('Temperatur (°C)', fontsize=12)
+            
+            # X-Achse formatieren
+            plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+            plt.gca().xaxis.set_major_locator(mdates.HourLocator(interval=4))
+            plt.xticks(rotation=45)
+            
+            # Gitter und Legende (unter dem Graphen)
+            plt.grid(True, alpha=0.3)
+            plt.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', fontsize=10, ncol=2)
+            
+            # Zeitstempel hinzufügen
+            plt.figtext(0.99, 0.01, f'Erstellt: {current_time}', 
+                       ha='right', va='bottom', fontsize=8, style='italic', alpha=0.7)
+            
+            # Layout anpassen (mehr Platz unten für Legende)
+            plt.tight_layout()
+            plt.subplots_adjust(bottom=0.2)
+            
+            # Bild speichern
+            img_buffer = io.BytesIO()
+            plt.savefig(img_buffer, format='PNG', dpi=100, bbox_inches='tight')
+            img_buffer.seek(0)
+            plt.close()
+            
+            # Zusammenfassende Statistik
+            summary_text = f"📊 *Temperaturverlauf Analyse*\n\n"
+            summary_text += f"✅ {successful_analyses}/{len(heaters)} Heizkörper mit Daten\n"
+            summary_text += f"📅 Zeitraum: letzte 24 Stunden\n"
+            summary_text += f"⏱️ Auflösung: 15 Minuten\n\n"
+            
+            summary_text += "*Aktuelle Temperaturen:*\n"
+            for history in all_histories:
+                trend_emoji = "📈" if history['current_temp'] > history['avg_temp'] else "📉" if history['current_temp'] < history['avg_temp'] else "➡️"
+                summary_text += f"{trend_emoji} {history['name']}: {history['current_temp']:.1f}°C "
+                summary_text += f"({history['min_temp']:.1f}-{history['max_temp']:.1f}°C)\n"
+            
+            # Bild senden
+            await loading_message.delete()
+            await update.message.reply_photo(
+                photo=img_buffer,
+                caption=summary_text,
+                parse_mode='Markdown',
+                reply_markup=context.user_data.get('keyboard', markupList[STATISTICS])
+            )
+            
+        except ImportError:
+            await loading_message.edit_text("❌ Matplotlib nicht installiert. Bitte installieren Sie:\n"
+                                          "`pip install matplotlib`")
+        except Exception as e:
+            await loading_message.edit_text(f"❌ Fehler beim Erstellen der Graphik: {str(e)}")
+    
+    except Exception as e:
+        await update.message.reply_text(f"Fehler beim Abrufen der Temperaturverlaufsdaten: {str(e)}",
                                       reply_markup=context.user_data.get('keyboard', markupList[STATISTICS]))
     
     return context.user_data['status']
