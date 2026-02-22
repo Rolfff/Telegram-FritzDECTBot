@@ -128,8 +128,47 @@ class FritzBoxAPI:
             
             if response.status_code == 200:
                 print(f"DEBUG: TR-064 verfügbar für FRITZ!OS 7.57")
-                # TR-064 funktioniert ohne Login - wir können direkt Geräte abrufen
-                return True
+                
+                # Jetzt eigentlichen Login durchführen mit Challenge-Response
+                login_sid_url = f"http://{self.host}:49000/login_sid.lua"
+                
+                # Zuerst Challenge holen
+                challenge_response = self.session.get(f"http://{self.host}:49000/login_sid.lua", timeout=30)
+                if challenge_response.status_code == 200:
+                    xml = ET.fromstring(challenge_response.text)
+                    challenge = xml.find("Challenge").text
+                    
+                    # Challenge-Response berechnen
+                    if challenge.startswith("2$"):
+                        response_value = self.calculate_pbkdf2_response(challenge, self.password)
+                    else:
+                        response_value = self.calculate_md5_response(challenge, self.password)
+                    
+                    params = {
+                        'username': self.username,
+                        'response': response_value
+                    }
+                    
+                    print(f"DEBUG: Führe TR-064 Login durch mit: {login_sid_url}")
+                    login_response = self.session.post(login_sid_url, data=params, timeout=30)
+                    
+                    if login_response.status_code == 200:
+                        xml = ET.fromstring(login_response.text)
+                        sid = xml.find("SID").text
+                        
+                        if sid and sid != "0000000000000000":
+                            self.sid = sid
+                            print(f"DEBUG: TR-064 Login erfolgreich, SID: {sid}")
+                            return True
+                        else:
+                            print(f"DEBUG: TR-064 Login fehlgeschlagen: {sid}")
+                            return False
+                    else:
+                        print(f"DEBUG: TR-064 Login POST fehlgeschlagen: {login_response.status_code}")
+                        return False
+                else:
+                    print(f"DEBUG: TR-064 Challenge holen fehlgeschlagen: {challenge_response.status_code}")
+                    return False
             else:
                 print(f"DEBUG: TR-064 nicht verfügbar, Status: {response.status_code}")
                 return False
