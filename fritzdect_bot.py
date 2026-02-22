@@ -315,6 +315,7 @@ async def async_main():
     
     # Callback handler für Inline-Keyboards
     application.add_handler(CallbackQueryHandler(StatistikMode.handle_temp_callback))
+    application.add_handler(CallbackQueryHandler(StatistikMode.handle_window_callback))
     
     print("Bot wird gestartet...")
     

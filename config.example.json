@@ -15,6 +15,11 @@
     "vacation_off": "Urlaubsschaltung AUS",
     "vacation_temperature": 16.0
   },
+  "window_open": {
+    "default_duration_minutes": 15,
+    "reminder_minutes_before": 5,
+    "max_duration_hours": 24
+  },
   "database": {
     "path": "database/userdata.db",
     "table": "users"
