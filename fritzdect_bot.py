@@ -43,6 +43,11 @@ import lib.automationMode_optimized as AutomationModeOptimized
 config = Config()
 db = UserDatabase()
 
+# LoginMode die globale Datenbank-Instanz setzen
+LoginMode.set_database(db)
+# AdminMode die globale Datenbank-Instanz setzen
+AdminMode.set_database(db)
+
 # Textbefehle für MAIN-Status (da modeList[MAIN] = None)
 main_textbefehl = {
     'start': 'Bot starten und Login einleiten',
@@ -135,8 +140,24 @@ async def checkAuthentifizierung(update, user_data):
     else:
         # Prüfen ob Benutzer in Datenbank und nicht geblockt
         try:
-            if db.user_exists(int(chat_id)) and db.is_user_allowed(int(chat_id)):
+            # Prüfen ob User gerade freigeschaltet wurde (hat Zugriff aber Status ist noch LOGIN)
+            was_just_granted = (db.user_exists(int(chat_id)) and 
+                              db.is_access_granted(int(chat_id)) and 
+                              user_data.get('status') == LOGIN)
+            
+            if db.user_exists(int(chat_id)) and (db.is_user_allowed(int(chat_id)) or db.is_access_granted(int(chat_id))):
                 user_data['isAuthenticated'] = True
+                # Wenn User gerade freigeschaltet wurde, automatisch in MAIN wechseln
+                if was_just_granted:
+                    user_data['keyboard'] = markupList[MAIN]
+                    user_data['status'] = MAIN
+                    await update.message.reply_text(
+                        '🎉 **Willkommen im FritzDECT-Bot!**\n\n'
+                        'Dein Zugriff wurde erfolgreich aktiviert.\n'
+                        'Du kannst jetzt alle Funktionen nutzen.\n\n'
+                        '💡 Nutze /help für eine Übersicht aller Befehle.',
+                        reply_markup=markupList[MAIN]
+                    )
             else:
                 user_data['isAuthenticated'] = False
                 if not db.is_user_blocked(int(chat_id)):
@@ -144,12 +165,14 @@ async def checkAuthentifizierung(update, user_data):
         except:
             user_data['isAuthenticated'] = False
     
+    # Status nur anpassen wenn nicht bereits auf MAIN gesetzt (z.B. nach Freischaltung)
     if not user_data['isAuthenticated']:
         user_data['keyboard'] = markupList[LOGIN]
         user_data['status'] = LOGIN
         return LOGIN
-    else:
-        if user_data['isAuthenticated'] and user_data['status'] == LOGIN:
+    elif user_data['isAuthenticated'] and user_data['status'] == LOGIN:
+        # Nur wechseln wenn nicht bereits durch Freischaltung auf MAIN gesetzt
+        if 'was_just_granted' not in locals() or not was_just_granted:
             user_data['keyboard'] = markupList[MAIN]
             user_data['status'] = MAIN
 
@@ -174,10 +197,35 @@ async def selectModeFunc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         classs = modeList[context.user_data['status']]
         
         textFromUser = update.message.text
+        
+        # Authentifizierung prüfen für alle Modi außer LOGIN
         if context.user_data['status'] != LOGIN:
             await checkAuthentifizierung(update, context.user_data)
+            # Wenn Status durch checkAuthentifizierung geändert wurde (z.B. nach Freischaltung)
+            if context.user_data['status'] == MAIN and context.user_data.get('isAuthenticated'):
+                # User wurde gerade freigeschaltet, zeige Hauptmenü
+                return MAIN
+            elif context.user_data['status'] == LOGIN:
+                # User wurde nicht authentifiziert, bleibe im LOGIN
+                return LOGIN
         
-        if context.user_data['isAuthenticated'] or context.user_data['status'] == LOGIN:
+        # Bei LOGIN-Status immer die Login-Funktion aufrufen
+        if context.user_data['status'] == LOGIN:
+            # Default Funktion (login) aufrufen
+            try:
+                func = getattr(classs, 'default')
+                # Korrekte Parameter-Reihenfolge: (update, context, user_data, markupList)
+                funcRet = await func(update, context, context.user_data, markupList)
+                context.user_data['status'] = funcRet
+                return funcRet
+            except AttributeError as e:
+                logger.error(f"Default-Funktion nicht gefunden in Klasse {classs.__name__}: {e}")
+                await update.message.reply_text(
+                    'Interner Fehler im Login-Modus.\n',
+                    reply_markup=markupList[context.user_data['status']])
+                return context.user_data['status']
+        
+        if context.user_data['isAuthenticated'] and context.user_data['status'] != LOGIN:
             funkName=None
             # Suche nach FunktionsName ([1:] entfernt / am Anfang der Zeichenkette)
             if textFromUser.startswith('/') and textFromUser[1:] in classs.tastertur:
@@ -191,7 +239,7 @@ async def selectModeFunc(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Default Funktion versuchen
                 try:
                     func = getattr(classs, 'default')
-                    #funcRet = await func(context.bot, update, context.user_data, markupList)
+                    # Korrekte Parameter-Reihenfolge: (update, context, user_data, markupList)
                     funcRet = await func(update, context, context.user_data, markupList)
                     context.user_data['status'] = funcRet
                 except AttributeError as e:
@@ -208,6 +256,7 @@ async def selectModeFunc(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         logger.warning(f"Konnte Admin-Benachrichtigung nicht senden: {e}")
                 
                 func = getattr(classs, str(funkName))
+                # Korrekte Parameter-Reihenfolge: (update, context, user_data, markupList)
                 funcRet = await func(update, context, context.user_data, markupList)
                 context.user_data['status'] = funcRet
     return context.user_data['status']
@@ -399,6 +448,21 @@ async def async_main():
     for pattern in window_patterns:
         application.add_handler(CallbackQueryHandler(StatistikModeOptimized.handle_window_callback, pattern=pattern))
         logger.info(f"Callback-Handler registriert für Pattern: {pattern}")
+    
+    # Handler für Admin-Request Callbacks
+    admin_request_patterns = [
+        r'approve_request_.*',
+        r'reject_request_.*',
+        r'grant_days_.*',
+        r'custom_days_.*'
+    ]
+    
+    for pattern in admin_request_patterns:
+        application.add_handler(CallbackQueryHandler(
+            lambda update, context: AdminMode.handle_request_callback(update, context, context.user_data, markupList), 
+            pattern=pattern
+        ))
+        logger.info(f"Admin-Callback-Handler registriert für Pattern: {pattern}")
     
     print("Bot wird gestartet...")
     
