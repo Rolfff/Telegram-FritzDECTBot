@@ -1540,8 +1540,13 @@ async def handle_window_callback(update, context):
                         f"❌ Fehler beim Deaktivieren des Fenster-Modus für {heater_name}"
                     )
             else:
-                # Aktivieren (30 Minuten Standard)
-                result = stats_manager.set_window_open_mode(ain, duration_minutes=30)
+                # Aktivieren mit Standard-Dauer aus Konfiguration
+                from lib.config import Config
+                config_obj = Config()
+                window_config = config_obj.get('window_open', {})
+                default_duration = window_config.get('default_duration_minutes', 30)
+                
+                result = stats_manager.set_window_open_mode(ain, duration_minutes=default_duration)
                 
                 if result['success']:
                     end_time = result['end_time']
