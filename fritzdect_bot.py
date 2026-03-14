@@ -3,19 +3,41 @@
 
 import logging
 import os
-from telegram import Update, ReplyKeyboardMarkup
+# Telegram Importe mit Fallback für Tests
+try:
+    from telegram import Update, ReplyKeyboardMarkup
+    TELEGRAM_AVAILABLE = True
+except ImportError:
+    TELEGRAM_AVAILABLE = False
+    Update = None
+    ReplyKeyboardMarkup = None
+    print("WARNING: telegram module nicht gefunden - Bot läuft im Test-Modus")
+
 import signal
 import sys
 import asyncio
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
+# Telegram.ext Import mit Fallback
+try:
+    from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
+    TELEGRAM_EXT_AVAILABLE = True
+except ImportError:
+    TELEGRAM_EXT_AVAILABLE = False
+    Application = None
+    CommandHandler = None
+    MessageHandler = None
+    filters = None
+    ContextTypes = None
+    ConversationHandler = None
+    CallbackQueryHandler = None
+    print("WARNING: telegram.ext module nicht gefunden - Bot läuft im Test-Modus")
 from lib.config import modeList, markupList, LOGIN, MAIN, ADMIN, STATISTICS, AUTOMATION, Config, genMarkupList
 from lib.user_database import UserDatabase
-from lib.fritzbox_api import FritzBoxAPI
+from lib.fritzbox_api_optimized import OptimizedFritzBoxAPI
 
 import lib.adminMode as AdminMode
 import lib.loginMode as LoginMode
-import lib.statistikMode as StatistikMode
-import lib.automationMode as AutomationMode
+import lib.statistikMode_optimized as StatistikModeOptimized
+import lib.automationMode_optimized as AutomationModeOptimized
 
 # Konfiguration
 config = Config()
@@ -35,7 +57,7 @@ main_textbefehl = {
     'automation': 'Öffnet den Automation-Modus für Szenarien und Vorlagen'
 }
 
-# Global variable for graceful shutdown
+# Globale variable for graceful shutdown
 shutdown_event = asyncio.Event()
 
 def signal_handler(signum, frame):
@@ -46,25 +68,37 @@ def signal_handler(signum, frame):
 # Register signal handlers
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
-fritzbox = FritzBoxAPI()
 
-# Logging
-logging.basicConfig(**config.get_logging_config())
-logger = logging.getLogger(__name__)
-logger.info("=== Bot gestartet - Logging aktiviert ===")
-logger.info(f"Logging-Level: {config.get('logging.level')}")
+# Nur bei Verfügbarkeit der Telegram-Module initialisieren
+if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE:
+    fritzbox = OptimizedFritzBoxAPI()
 
-# Modi Klassennamen zu den Statusen (Index 0=MAIN, 1=LOGIN, 2=ADMIN, usw.)
-# Hinweis: Die Indizes müssen mit den Werten von ConversationHandler.states übereinstimmen
-from lib.config import modeList
-modeList[LOGIN] = LoginMode
-modeList[ADMIN] = AdminMode
-modeList[STATISTICS] = StatistikMode
-modeList[AUTOMATION] = AutomationMode
-
-# markupList generieren
-from lib.config import genMarkupList
-markupList = genMarkupList()
+    # Logging
+    logging.basicConfig(**config.get_logging_config())
+    logger = logging.getLogger(__name__)
+    logger.info("=== Bot gestartet - Logging aktiviert ===")
+    logger.info(f"Logging-Level: {config.get('logging.level')}")
+    
+    # Modi Klassennamen zu den Statusen (Index 0=MAIN, 1=LOGIN, 2=ADMIN, usw.)
+    # Hinweis: Die Indizes müssen mit den Werten von ConversationHandler.states übereinstimmen
+    from lib.config import modeList
+    modeList[LOGIN] = LoginMode
+    modeList[ADMIN] = AdminMode
+    modeList[STATISTICS] = StatistikModeOptimized  # Optimierte Version verwenden!
+    modeList[AUTOMATION] = AutomationModeOptimized  # Optimierte Version verwenden!
+    
+    # markupList generieren
+    from lib.config import genMarkupList
+    markupList = genMarkupList()
+    
+    # Weitere Importe nur bei Verfügbarkeit
+    import lib.adminMode as AdminMode
+    import lib.loginMode as LoginMode
+    import lib.statistikMode_optimized as StatistikModeOptimized
+    import lib.automationMode_optimized as AutomationModeOptimized
+else:
+    print("WARNING: Telegram-Module nicht verfügbar - Bot wird nicht gestartet")
+    sys.exit(1)
 
 
 def initializeChatData(message, user_data):
@@ -264,6 +298,11 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def async_main():
     """Asynchronous main function"""
+    # Prüfen ob Telegram-Module verfügbar sind
+    if not TELEGRAM_AVAILABLE or not TELEGRAM_EXT_AVAILABLE:
+        print("ERROR: Telegram-Module nicht verfügbar - Bot kann nicht gestartet werden")
+        return
+    
     token = config.get_telegram_token()
     if not token:
         print("Bot-Token nicht in config.json gefunden!")
@@ -275,29 +314,27 @@ async def async_main():
 #            LOGIN: [
 #                MessageHandler(filters.Regex('^(Login)$'), getPasswort),
 #                CommandHandler('Login', getPasswort),
-#                MessageHandler(filters.Regex('^(Bye)$'), done),
 #                MessageHandler(filters.TEXT & ~filters.COMMAND, login),
 #                MessageHandler(filters.COMMAND, unknown_command),
 #            ],
             MAIN: [
                 MessageHandler(filters.Regex('^(Geräte)$'), done),
                 CommandHandler('geraete', done),
-                MessageHandler(filters.Regex('^(Temperatur)$'), lambda update, context: StatistikMode.set_temp(update, context, context.user_data, markupList)),
-                CommandHandler('temperatur', lambda update, context: StatistikMode.set_temp(update, context, context.user_data, markupList)),
-                MessageHandler(filters.Regex('^(Temp\\.-Verlauf)$'), lambda update, context: StatistikMode.temp_history(update, context, context.user_data, markupList)),
-                CommandHandler('temp_history', lambda update, context: StatistikMode.temp_history(update, context, context.user_data, markupList)),
+                MessageHandler(filters.Regex('^(Temperatur setzen)$'), lambda update, context: StatistikModeOptimized.set_temp(update, context, context.user_data, markupList)),
+                MessageHandler(filters.Regex('^(Temp\\.-Verlauf)$'), lambda update, context: StatistikModeOptimized.temp_history(update, context, context.user_data, markupList)),
+                CommandHandler('temp_history', lambda update, context: StatistikModeOptimized.temp_history(update, context, context.user_data, markupList)),
                 MessageHandler(filters.Regex('^(Logout)$'), done),
                 CommandHandler('logout', done),
 #TODO pers. Config zb Batterien anzeigen, PushNoti bei Änderungen von anderen, Absenk temp bei Urlaub...                MessageHandler(filters.Regex('^(Einstellungen)$'), lambda update, context: ConfigMode.status(update, context, context.user_data, markupList)),
 #                CommandHandler('Einstellungen', lambda update, context: ConfigMode.status(update, context, context.user_data, markupList)),
-                MessageHandler(filters.Regex('^(Heizung)$'), lambda update, context: StatistikMode.status(update, context, context.user_data, markupList)),
-                CommandHandler('Heizung', lambda update, context: StatistikMode.status(update, context, context.user_data, markupList)),
+                MessageHandler(filters.Regex('^(Heizung)$'), lambda update, context: StatistikModeOptimized.status(update, context, context.user_data, markupList)),
+                CommandHandler('Heizung', lambda update, context: StatistikModeOptimized.status(update, context, context.user_data, markupList)),
                 CommandHandler('admin', switchToAdminModus),
-                CommandHandler('automation', switchToAutomationModus),
                 MessageHandler(filters.Regex('^(Automation)$'), switchToAutomationModus),
+                CommandHandler('automation', switchToAutomationModus),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message),
                 MessageHandler(filters.COMMAND, unknown_command),
-            ]
+            ] if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE else []
         }
     
     for x in range(len(modeList)):
@@ -340,14 +377,15 @@ async def async_main():
     logger.info("Registriere Callback-Handler...")
     
     # Handler für Temperatur-Callbacks
-    application.add_handler(CallbackQueryHandler(StatistikMode.handle_temp_callback, pattern=r'select_heater_.*'))
-    application.add_handler(CallbackQueryHandler(StatistikMode.handle_temp_callback, pattern=r'cancel_temp_set'))
+    application.add_handler(CallbackQueryHandler(StatistikModeOptimized.handle_temp_callback, pattern=r'select_heater_.*'))
+    application.add_handler(CallbackQueryHandler(StatistikModeOptimized.handle_temp_callback, pattern=r'set_temp_.*'))
+    application.add_handler(CallbackQueryHandler(StatistikModeOptimized.handle_temp_callback, pattern=r'cancel_temp_set'))
     
     # Handler für Automation Mode Callbacks
-    application.add_handler(CallbackQueryHandler(AutomationMode.handle_scenario_callback, pattern=r'execute_scenario_.*'))
-    application.add_handler(CallbackQueryHandler(AutomationMode.handle_scenario_callback, pattern=r'apply_template_.*'))
-    application.add_handler(CallbackQueryHandler(AutomationMode.handle_scenario_callback, pattern=r'cancel_scenario'))
-    application.add_handler(CallbackQueryHandler(AutomationMode.handle_scenario_callback, pattern=r'cancel_template'))
+    application.add_handler(CallbackQueryHandler(AutomationModeOptimized.handle_scenario_callback, pattern=r'execute_scenario_.*'))
+    application.add_handler(CallbackQueryHandler(AutomationModeOptimized.handle_scenario_callback, pattern=r'apply_template_.*'))
+    application.add_handler(CallbackQueryHandler(AutomationModeOptimized.handle_scenario_callback, pattern=r'cancel_scenario'))
+    application.add_handler(CallbackQueryHandler(AutomationModeOptimized.handle_scenario_callback, pattern=r'cancel_template'))
     
     # Handler für Fenster-Callbacks mit allen möglichen Patterns
     window_patterns = [
@@ -359,12 +397,8 @@ async def async_main():
     ]
     
     for pattern in window_patterns:
-        application.add_handler(CallbackQueryHandler(StatistikMode.handle_window_callback, pattern=pattern))
+        application.add_handler(CallbackQueryHandler(StatistikModeOptimized.handle_window_callback, pattern=pattern))
         logger.info(f"Callback-Handler registriert für Pattern: {pattern}")
-    
-    # Fallback-Handler für alle anderen Callbacks
-    application.add_handler(CallbackQueryHandler(StatistikMode.handle_window_callback))
-    logger.info("Fallback Callback-Handler registriert")
     
     print("Bot wird gestartet...")
     

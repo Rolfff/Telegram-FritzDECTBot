@@ -1,17 +1,53 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-import os
-import importlib.util
-import sys
-from telegram.ext import ConversationHandler
+
+# Telegram Importe mit Fallback für Tests
+try:
+    from telegram import Update
+    from telegram.ext import ConversationHandler
+    TELEGRAM_AVAILABLE = True
+except ImportError:
+    Update = None
+    ConversationHandler = None
+    TELEGRAM_AVAILABLE = False
+    print("WARNING: telegram module nicht gefunden - LoginMode läuft im Test-Modus")
+
+try:
+    import os
+except ImportError:
+    print("WARNING: os module nicht gefunden")
+    os = None
+
+try:
+    import importlib.util
+except ImportError:
+    print("WARNING: importlib.util module nicht gefunden")
+    importlib = None
+
+try:
+    import sys
+except ImportError:
+    print("WARNING: sys module nicht gefunden")
+    sys = None
+
+try:
+    import logging
+    logger = logging.getLogger(__name__)
+except ImportError:
+    print("WARNING: logging module nicht gefunden")
+    logging = None
 
 def load_module(name, filepath):
     """Load a module from file path using importlib"""
-    spec = importlib.util.spec_from_file_location(name, os.path.join(os.path.dirname(__file__), filepath))
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+    if importlib is not None and os is not None and sys is not None:
+        spec = importlib.util.spec_from_file_location(name, os.path.join(os.path.dirname(__file__), filepath))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        return module
+    else:
+        print("WARNING: load_module nicht möglich - benötigte Module nicht gefunden")
+        return None
 
 # Load configuration and database modules
 config_module = load_module("config", "config.py")

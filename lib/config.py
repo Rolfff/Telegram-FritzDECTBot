@@ -64,34 +64,60 @@ MAIN, LOGIN, ADMIN, STATISTICS, AUTOMATION = range(5)
 modeList = [None, None, None, None, None]
 
 # Tastatur-Layouts
-reply_keyboard_main = [['Geräte', 'Temperatur setzen', 'Logout'],['Heizung','Automation','Einstellungen']]
+reply_keyboard_main = [['Temperatur setzen', 'Logout'],['Heizung','Automation','Einstellungen']]
 
 def genMarkupList():
     """Generiert die MarkupList für alle Modi"""
-    from telegram import ReplyKeyboardMarkup
+    try:
+        from telegram import ReplyKeyboardMarkup
+    except ImportError:
+        # Fallback für Tests ohne Telegram
+        ReplyKeyboardMarkup = None
     
     markupList = {}
     for i in range(len(modeList)):
         if modeList[i] != None:
-            markupList[i] = ReplyKeyboardMarkup(buildKeyboard(modeList[i]), one_time_keyboard=False, resize_keyboard=True)
+            if ReplyKeyboardMarkup:
+                markupList[i] = ReplyKeyboardMarkup(buildKeyboard(modeList[i]), one_time_keyboard=False, resize_keyboard=True)
+            else:
+                # Fallback: Leere Liste
+                markupList[i] = []
         else:
-            markupList[i] = ReplyKeyboardMarkup(reply_keyboard_main, one_time_keyboard=False, resize_keyboard=True)
+            if ReplyKeyboardMarkup:
+                markupList[i] = ReplyKeyboardMarkup(reply_keyboard_main, one_time_keyboard=False, resize_keyboard=True)
+            else:
+                markupList[i] = []
     return markupList
 
 def getMarkupList(status):
     """Gibt die MarkupList für einen bestimmten Status zurück"""
-    from telegram import ReplyKeyboardMarkup
+    try:
+        from telegram import ReplyKeyboardMarkup
+    except ImportError:
+        # Fallback für Tests ohne Telegram
+        ReplyKeyboardMarkup = None
     
     if modeList[status] != None:
-        return ReplyKeyboardMarkup(buildKeyboard(modeList[status]), one_time_keyboard=False, resize_keyboard=True)
-    return ReplyKeyboardMarkup(reply_keyboard_main, one_time_keyboard=False, resize_keyboard=True)
+        if ReplyKeyboardMarkup:
+            return ReplyKeyboardMarkup(buildKeyboard(modeList[status]), one_time_keyboard=False, resize_keyboard=True)
+        else:
+            return []
+    return []
 
 def buildKeyboard(classs):
     """Erstellt eine Tastatur aus den Variablen 'tastertur' einer Klasse"""
     temp=[]
     reply_keyboard=[]
     i=0
-    for v in classs.tastertur.values():
+    
+    # Fallback für tastertur Attribut
+    if hasattr(classs, 'tastertur'):
+        tastertur_values = classs.tastertur.values()
+    else:
+        # Standard-Tastatur wenn tastertur nicht vorhanden
+        tastertur_values = ['Hilfe', 'Zurück']
+    
+    for v in tastertur_values:
         temp.append(v)
         i=i+1
         if i % 3 == 0:
