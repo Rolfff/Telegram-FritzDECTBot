@@ -689,3 +689,16 @@ async def default(update, context, user_data, markupList):
     
     # Ansonsten Hilfe anzeigen
     return await help(update, context, user_data, markupList)
+
+
+def get_callback_handlers():
+    """Gibt die Callback-Handler-Konfiguration für AdminMode zurück"""
+    return {
+        'patterns': [
+            r'approve_request_.*',
+            r'reject_request_.*',
+            r'grant_days_.*',
+            r'custom_days_.*'
+        ],
+        'handler': AdminMode.handle_request_callback
+    }

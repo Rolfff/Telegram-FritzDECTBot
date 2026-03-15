@@ -5,6 +5,8 @@ import logging
 from typing import Dict, List, Optional
 from lib.fritzbox_api_optimized import OptimizedFritzBoxAPI, TemplateInfo
 from lib.statistikMode_optimized import stats_manager
+# Importiere Konstanten
+from lib.config import AUTOMATION
 
 # Logger initialisieren
 logger = logging.getLogger(__name__)
@@ -470,6 +472,30 @@ class OptimizedAutomationManager:
         """Löscht alle Caches"""
         self.fritz_api.clear_cache()
         self.stats_manager.clear_cache()
+
+def get_callback_handlers():
+    """Gibt die Callback-Handler-Konfiguration für AutomationMode zurück"""
+    return {
+        'patterns': [
+            r'execute_scenario_.*',
+            r'apply_template_.*',
+            r'cancel_scenario',
+            r'cancel_template'
+        ],
+        'handler': AutomationModeOptimized.handle_scenario_callback
+    }
+
+async def default(update, context, user_data, markupList):
+    """Wechselt in den Automation-Modus"""
+    context.user_data['keyboard'] = markupList[AUTOMATION]
+    context.user_data['status'] = AUTOMATION
+    await update.message.reply_text("-->AUTOMATIONMODE<--\n\n🤖 Verfügbare Funktionen:\n"
+                                  "• Szenarien anzeigen und ausführen\n"
+                                  "• Vorlagen anzeigen und anwenden\n"
+                                  "• Urlaubs-Szenarien erstellen\n\n"
+                                  "💡 Nutze /help für alle Befehle",
+                                  reply_markup=context.user_data['keyboard'])
+    return context.user_data['status']
 
 # Globale Instanz
 automation_manager = OptimizedAutomationManager()

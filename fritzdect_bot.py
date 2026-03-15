@@ -30,13 +30,14 @@ except ImportError:
     ConversationHandler = None
     CallbackQueryHandler = None
     print("WARNING: telegram.ext module nicht gefunden - Bot läuft im Test-Modus")
-from lib.config import modeList, markupList, LOGIN, MAIN, ADMIN, STATISTICS, AUTOMATION, Config, genMarkupList
+from lib.config import modeList, markupList, LOGIN, MAIN, ADMIN, STATISTICS, AUTOMATION, SETTINGS, Config, genMarkupList
 from lib.user_database import UserDatabase
 from lib.fritzbox_api_optimized import OptimizedFritzBoxAPI
 
 import lib.adminMode as AdminMode
 import lib.loginMode as LoginMode
 import lib.statistikMode_optimized as StatistikModeOptimized
+import lib.settingsMode as SettingsMode
 import lib.automationMode_optimized as AutomationModeOptimized
 
 # Konfiguration
@@ -47,19 +48,19 @@ db = UserDatabase()
 LoginMode.set_database(db)
 # AdminMode die globale Datenbank-Instanz setzen
 AdminMode.set_database(db)
+# SettingsMode die globale Datenbank-Instanz setzen
+SettingsMode.set_database(db)
 
 # Textbefehle für MAIN-Status (da modeList[MAIN] = None)
 main_textbefehl = {
     'start': 'Bot starten und Login einleiten',
     'help': 'Diese Hilfe anzeigen',
-    'letsgo': 'Rechte überprüfen und fortfahren',
     'logout': 'Ausloggen',
-    'bye': 'Bot beenden',
     'heizung': 'Alle Heizkörper und deren Temperaturen anzeigen',
-    'geraete': 'Alle FritzBox Geräte und deren Temperaturen anzeigen',
-    'vacation_mode': 'Schaltet FritzBox-Urlaubsschaltung für alle Heizkörper ein/aus',
-    'admin': 'Aktiviert den Admin-Modus (nur Admin)',
-    'automation': 'Öffnet den Automation-Modus für Szenarien und Vorlagen'
+    'set_temp': 'Temperatur der Heizungen setzen',
+    'temp_history': 'Temp.-Verlauf der Heizungen anzeigen',
+    'automation': 'Öffnet den Automation-Modus für Szenarien und Vorlagen',
+    'einstellungen': 'Öffnet die Einstellungen für Sprache und Benachrichtigungen'
 }
 
 # Globale variable for graceful shutdown
@@ -91,6 +92,7 @@ if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE:
     modeList[ADMIN] = AdminMode
     modeList[STATISTICS] = StatistikModeOptimized  # Optimierte Version verwenden!
     modeList[AUTOMATION] = AutomationModeOptimized  # Optimierte Version verwenden!
+    modeList[SETTINGS] = SettingsMode
     
     # markupList generieren
     from lib.config import genMarkupList
@@ -224,31 +226,37 @@ async def selectModeFunc(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'Interner Fehler im Login-Modus.\n',
                     reply_markup=markupList[context.user_data['status']])
                 return context.user_data['status']
-        
+        if context.user_data['status'] == MAIN:
+            # Hauptmenü anzeigen
+            await help_command(update, context)
+            return context.user_data['status']
+
         if context.user_data['isAuthenticated'] and context.user_data['status'] != LOGIN:
             funkName=None
+            # Normale Behandlung für andere Modi (MAIN hat keine Klasse)
             # Suche nach FunktionsName ([1:] entfernt / am Anfang der Zeichenkette)
             if textFromUser.startswith('/') and textFromUser[1:] in classs.tastertur:
                 funkName=textFromUser[1:]
             # Suche über Button-Beschriftung
             elif textFromUser in classs.tastertur.values():
-                for key, value in classs.tastertur.items():
-                    if value == textFromUser:
-                        funkName=key
+                    for key, value in classs.tastertur.items():
+                        if value == textFromUser:
+                            funkName=key
             if funkName is None:
-                # Default Funktion versuchen
-                try:
-                    func = getattr(classs, 'default')
-                    # Korrekte Parameter-Reihenfolge: (update, context, user_data, markupList)
-                    funcRet = await func(update, context, context.user_data, markupList)
-                    context.user_data['status'] = funcRet
-                except AttributeError as e:
-                    logger.error(f"Default-Funktion nicht gefunden in Klasse {classs.__name__}: {e}")
-                    await update.message.reply_text(
-                        'Modus: "'+textFromUser+'" wurde leider nicht gefunden.\n'+
-                        'Versuche es mal mit /help.\n',
-                        reply_markup=markupList[context.user_data['status']])
+                # Default Funktion versuchen (nur für Nicht-MAIN Modi)
+                    try:
+                        func = getattr(classs, 'default')
+                        # Korrekte Parameter-Reihenfolge: (update, context, user_data, markupList)
+                        funcRet = await func(update, context, context.user_data, markupList)
+                        context.user_data['status'] = funcRet
+                    except AttributeError as e:
+                        logger.error(f"Default-Funktion nicht gefunden in Klasse {classs.__name__}: {e}")
+                        await update.message.reply_text(
+                            'Modus: "'+textFromUser+'" wurde leider nicht gefunden.\n'+
+                            'Versuche es mal mit /help.\n',
+                            reply_markup=markupList[context.user_data['status']])
             else:
+                # Normale Funktionsausführung für andere Modi
                 if context.user_data['chatId'] != config.get_admin_chat_id():
                     try:
                         await context.bot.send_message(config.get_admin_chat_id(), text=context.user_data['firstname']+" hat Funktion "+str(classs.__name__)+"."+funkName+" aufgerufen.")
@@ -294,27 +302,18 @@ async def switchToAdminModus(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await update.message.reply_text('Sorry, du hast leider keine Admin-Rechte.')
 
-async def switchToAutomationModus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Wechselt in den Automation-Modus"""
-    context.user_data['keyboard'] = markupList[AUTOMATION]
-    context.user_data['status'] = AUTOMATION
-    await update.message.reply_text("-->AUTOMATIONMODE<--\n\n🤖 Verfügbare Funktionen:\n"
-                                  "• Szenarien anzeigen und ausführen\n"
-                                  "• Vorlagen anzeigen und anwenden\n"
-                                  "• Urlaubs-Szenarien erstellen\n\n"
-                                  "💡 Nutze /help für alle Befehle",
-                                  reply_markup=context.user_data['keyboard'])
-    return context.user_data['status']
+   
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Zeigt Hilfe mit allen verfügbaren Befehlen"""
+    # Debug: Logge den Aufruf
+    logger.info(f"help_command aufgerufen für Status: {context.user_data.get('status', MAIN)}")
+    
     help_text = """Nutze das Keyboard für Standard-Aktionen.
 Weitere Funktionen:"""
-    
+    help_text += "\n- /help zeigt diesen Text an"
     if context.user_data['chatId'] == config.get_admin_chat_id():
         help_text += "\n- /admin aktiviert den Admin-Modus"
-    
-    help_text += "\n- /automation öffnet den Automation-Modus"
     
     # Textbefehle für aktuellen Status anzeigen
     current_status = context.user_data.get('status', MAIN)
@@ -327,23 +326,19 @@ Weitere Funktionen:"""
         # Andere Modi haben Klassen mit textbefehl Maps
         try:
             if modeList[current_status] is not None:
+                logger.debug(f"Suche textbefehl in modeList[{current_status}]")
                 for key, value in modeList[current_status].textbefehl.items():
                     help_text += f'\n- /{key} {value}'
+                    logger.debug(f"Gefunden: {key} = {value}")
         except (KeyError, AttributeError, IndexError) as e:
             # Fallback falls etwas schief geht
+            logger.error(f"Fehler in help_command: {e}")
             help_text += f'\n- Status {current_status}: Keine Hilfe verfügbar'
     
-    help_text += "\n \nInvalide Angaben führen zu dieser Ausgabe. Wende dich bei weitern Fragen an den Administrator."
+    help_text += "\n \nInvalide Angaben führen zu dieser Ausgabe. Wande dich bei weitern Fragen an den Administrator."
     
+    logger.debug(f"Sende Hilfe-Text: {help_text[:100]}...")
     await update.message.reply_text(help_text)
-
-async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler für unbekannte Textnachrichten - zeigt Hilfe an"""
-    await help_command(update, context)
-
-async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler für unbekannte Befehle - zeigt Hilfe an"""
-    await help_command(update, context)
 
 async def async_main():
     """Asynchronous main function"""
@@ -360,29 +355,19 @@ async def async_main():
     application = Application.builder().token(token).build()
     
     autoStatesHandler={
-#            LOGIN: [
-#                MessageHandler(filters.Regex('^(Login)$'), getPasswort),
-#                CommandHandler('Login', getPasswort),
-#                MessageHandler(filters.TEXT & ~filters.COMMAND, login),
-#                MessageHandler(filters.COMMAND, unknown_command),
-#            ],
             MAIN: [
-                MessageHandler(filters.Regex('^(Geräte)$'), done),
-                CommandHandler('geraete', done),
                 MessageHandler(filters.Regex('^(Temperatur setzen)$'), lambda update, context: StatistikModeOptimized.set_temp(update, context, context.user_data, markupList)),
+                CommandHandler('set_temp', lambda update, context: StatistikModeOptimized.set_temp(update, context, context.user_data, markupList)),
                 MessageHandler(filters.Regex('^(Temp\\.-Verlauf)$'), lambda update, context: StatistikModeOptimized.temp_history(update, context, context.user_data, markupList)),
                 CommandHandler('temp_history', lambda update, context: StatistikModeOptimized.temp_history(update, context, context.user_data, markupList)),
                 MessageHandler(filters.Regex('^(Logout)$'), done),
                 CommandHandler('logout', done),
-#TODO pers. Config zb Batterien anzeigen, PushNoti bei Änderungen von anderen, Absenk temp bei Urlaub...                MessageHandler(filters.Regex('^(Einstellungen)$'), lambda update, context: ConfigMode.status(update, context, context.user_data, markupList)),
-#                CommandHandler('Einstellungen', lambda update, context: ConfigMode.status(update, context, context.user_data, markupList)),
                 MessageHandler(filters.Regex('^(Heizung)$'), lambda update, context: StatistikModeOptimized.status(update, context, context.user_data, markupList)),
-                CommandHandler('Heizung', lambda update, context: StatistikModeOptimized.status(update, context, context.user_data, markupList)),
-                CommandHandler('admin', switchToAdminModus),
-                MessageHandler(filters.Regex('^(Automation)$'), switchToAutomationModus),
-                CommandHandler('automation', switchToAutomationModus),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message),
-                MessageHandler(filters.COMMAND, unknown_command),
+                CommandHandler('heizung', lambda update, context: StatistikModeOptimized.status(update, context, context.user_data, markupList)),
+                MessageHandler(filters.Regex('^(Automation)$'), lambda update, context: AutomationModeOptimized.default(update, context, context.user_data, markupList)),
+                CommandHandler('automation', lambda update, context: AutomationModeOptimized.default(update, context, context.user_data, markupList)),
+                MessageHandler(filters.Regex('^(Einstellungen)$'), lambda update, context: SettingsMode.default(update, context, context.user_data, markupList)),
+                CommandHandler('einstellungen',  lambda update, context: SettingsMode.default(update, context, context.user_data, markupList)),
             ] if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE else []
         }
     
@@ -400,10 +385,10 @@ async def async_main():
                                    selectModeFunc)])
             # /admin Befehl für alle Modi hinzufügen (Berechtigung wird in switchToAdminModus geprüft)
             autoStates.extend([CommandHandler('admin', switchToAdminModus)])
-            # /automation Befehl für alle Modi hinzufügen
-            autoStates.extend([CommandHandler('automation', switchToAutomationModus)])
-            autoStates.extend([CommandHandler('help', help_command)])
-            autoStates.extend([MessageHandler(filters.TEXT, selectModeFunc)])
+            # /help Befehl für alle Modi hinzufügen - überflüssig, wird global gehandelt
+            # autoStates.extend([CommandHandler('help', help_command)])
+            #selectModeFunc nur für Modi mit Klassen registrieren (nicht für MAIN)
+            autoStates.extend([MessageHandler(filters.TEXT & ~filters.COMMAND, selectModeFunc)])
             autoStatesHandler[x]=autoStates
 
     
@@ -411,7 +396,7 @@ async def async_main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start),MessageHandler(filters.TEXT, start)],
         states=autoStatesHandler,
-        fallbacks=[CommandHandler("logout", done)],
+        fallbacks=[CommandHandler("help", help_command), CommandHandler("logout", done)],
     )
     
     application.add_handler(conv_handler)
@@ -419,50 +404,30 @@ async def async_main():
     # Help command handler
     application.add_handler(CommandHandler("help", help_command))
     
-    # Fallback für unbekannte Befehle
-    application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
+    # Fallback für unbekannte Textnachrichten
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, help_command))
     
     # Callback handler für Inline-Keyboards
     logger.info("Registriere Callback-Handler...")
     
-    # Handler für Temperatur-Callbacks
-    application.add_handler(CallbackQueryHandler(StatistikModeOptimized.handle_temp_callback, pattern=r'select_heater_.*'))
-    application.add_handler(CallbackQueryHandler(StatistikModeOptimized.handle_temp_callback, pattern=r'set_temp_.*'))
-    application.add_handler(CallbackQueryHandler(StatistikModeOptimized.handle_temp_callback, pattern=r'cancel_temp_set'))
-    
-    # Handler für Automation Mode Callbacks
-    application.add_handler(CallbackQueryHandler(AutomationModeOptimized.handle_scenario_callback, pattern=r'execute_scenario_.*'))
-    application.add_handler(CallbackQueryHandler(AutomationModeOptimized.handle_scenario_callback, pattern=r'apply_template_.*'))
-    application.add_handler(CallbackQueryHandler(AutomationModeOptimized.handle_scenario_callback, pattern=r'cancel_scenario'))
-    application.add_handler(CallbackQueryHandler(AutomationModeOptimized.handle_scenario_callback, pattern=r'cancel_template'))
-    
-    # Handler für Fenster-Callbacks mit allen möglichen Patterns
-    window_patterns = [
-        r'cancel_window_mode',
-        r'window_disable_all', 
-        r'window_all_heaters',
-        r'window_heater_.*',
-        r'window_disable_.*'
+    # Dynamische Callback-Handler registrieren
+    callback_configs = [
+        (STATISTICS, StatistikModeOptimized),
+        (AUTOMATION, AutomationModeOptimized),
+        (SETTINGS, SettingsMode),
+        (ADMIN, AdminMode)
     ]
     
-    for pattern in window_patterns:
-        application.add_handler(CallbackQueryHandler(StatistikModeOptimized.handle_window_callback, pattern=pattern))
-        logger.info(f"Callback-Handler registriert für Pattern: {pattern}")
-    
-    # Handler für Admin-Request Callbacks
-    admin_request_patterns = [
-        r'approve_request_.*',
-        r'reject_request_.*',
-        r'grant_days_.*',
-        r'custom_days_.*'
-    ]
-    
-    for pattern in admin_request_patterns:
-        application.add_handler(CallbackQueryHandler(
-            lambda update, context: AdminMode.handle_request_callback(update, context, context.user_data, markupList), 
-            pattern=pattern
-        ))
-        logger.info(f"Admin-Callback-Handler registriert für Pattern: {pattern}")
+    for mode, module in callback_configs:
+        if hasattr(module, 'get_callback_handlers'):
+            config = module.get_callback_handlers()
+            handler = config['handler']
+            for pattern in config['patterns']:
+                application.add_handler(CallbackQueryHandler(
+                    lambda update, context, h=handler: h(update, context, context.user_data, markupList), 
+                    pattern=pattern
+                ))
+                logger.info(f"Callback-Handler registriert für Pattern: {pattern}")
     
     print("Bot wird gestartet...")
     

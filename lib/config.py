@@ -58,13 +58,13 @@ class Config:
         return self.get('security.block_duration_days', 2)
 
 # Konstanten für Bot-Zustände
-MAIN, LOGIN, ADMIN, STATISTICS, AUTOMATION = range(5)
+MAIN, LOGIN, ADMIN, STATISTICS, AUTOMATION, SETTINGS = range(6)
 
 # Modi werden in fritzdect_bot.py gesetzt
-modeList = [None, None, None, None, None]
+modeList = [None, None, None, None, None, None]
 
 # Tastatur-Layouts
-reply_keyboard_main = [['Temperatur setzen', 'Logout'],['Heizung','Automation','Einstellungen']]
+reply_keyboard_main = [['Temperatur setzen', 'Temp.-Verlauf', 'Heizung'],['Automation','Einstellungen','Logout']]
 
 def genMarkupList():
     """Generiert die MarkupList für alle Modi"""

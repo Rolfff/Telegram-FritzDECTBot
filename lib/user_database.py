@@ -36,6 +36,23 @@ class UserDatabase:
         finally:
             connection.close()
     
+    def fetch_one(self, sql, params=None):
+        """Führt eine SQL-Abfrage aus und gibt einen Datensatz zurück"""
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        try:
+            if params:
+                cursor.execute(sql, params)
+            else:
+                cursor.execute(sql)
+            result = cursor.fetchone()
+            return result
+        except Error as e:
+            print(f"Fehler bei fetch_one: {e} SQL-Query: {sql}")
+            return None
+        finally:
+            connection.close()
+    
     def create_database(self):
         # Verzeichnis erstellen falls nicht vorhanden
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
@@ -49,6 +66,10 @@ class UserDatabase:
             allowedToDatetime DATE NOT NULL,
             failedAttempts INTEGER NOT NULL DEFAULT 0,
             blockedUntil DATE DEFAULT NULL,
+            notifyVacationMode INTEGER NOT NULL DEFAULT 1,
+            notifyDoorPowerMeter INTEGER NOT NULL DEFAULT 1,
+            notifyDoorFrontDoor INTEGER NOT NULL DEFAULT 1,
+            language_code TEXT DEFAULT 'en',
             PRIMARY KEY(chatID)
         );"""
         self.execute(sql)
@@ -77,19 +98,52 @@ class UserDatabase:
                 print("Füge Spalte 'blockedUntil' hinzu...")
                 cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN blockedUntil DATE DEFAULT NULL")
                 connection.commit()
+            
+            # Neue Benachrichtigungs-Spalten hinzufügen
+            if 'notifyVacationMode' not in columns:
+                print("Füge Spalte 'notifyVacationMode' hinzu...")
+                cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN notifyVacationMode INTEGER NOT NULL DEFAULT 1")
+                connection.commit()
+            
+            if 'notifyDoorPowerMeter' not in columns:
+                print("Füge Spalte 'notifyDoorPowerMeter' hinzu...")
+                cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN notifyDoorPowerMeter INTEGER NOT NULL DEFAULT 1")
+                connection.commit()
+            
+            if 'notifyDoorFrontDoor' not in columns:
+                print("Füge Spalte 'notifyDoorFrontDoor' hinzu...")
+                cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN notifyDoorFrontDoor INTEGER NOT NULL DEFAULT 1")
+                connection.commit()
+            
+            # Spracheinstellung hinzufügen
+            if 'language_code' not in columns:
+                print("Füge Spalte 'language_code' hinzu...")
+                cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN language_code TEXT DEFAULT 'en'")
+                connection.commit()
                 
         except Error as e:
             print(f"Fehler bei Datenbank-Migration: {e}")
         finally:
             connection.close()
     
-    def add_user(self, chat_id, firstname=None, lastname=None, is_admin=0):
+    def add_user(self, chat_id, firstname=None, lastname=None, is_admin=0, language_code='en'):
         """Fügt einen neuen Benutzer hinzu"""
         allowed_until = DT.datetime.now() + DT.timedelta(hours=-1)
         sql = f"""INSERT OR REPLACE INTO {self.table_name} 
-                 (chatID, firstname, lastname, isAdmin, allowedToDatetime, failedAttempts, blockedUntil) 
-                 VALUES (?, ?, ?, ?, ?, 0, NULL)"""
-        self.execute(sql, (chat_id, firstname, lastname, is_admin, allowed_until))
+                 (chatID, firstname, lastname, isAdmin, allowedToDatetime, failedAttempts, blockedUntil, language_code) 
+                 VALUES (?, ?, ?, ?, ?, 0, NULL, ?)"""
+        self.execute(sql, (chat_id, firstname, lastname, is_admin, allowed_until, language_code))
+    
+    def update_user_language(self, chat_id, language_code):
+        """Aktualisiert die Spracheinstellung eines Benutzers"""
+        sql = f"UPDATE {self.table_name} SET language_code = ? WHERE chatID = ?"
+        self.execute(sql, (language_code, chat_id))
+    
+    def get_user_language(self, chat_id):
+        """Gibt die Spracheinstellung eines Benutzers zurück"""
+        sql = f"SELECT language_code FROM {self.table_name} WHERE chatID = ?"
+        result = self.fetch_one(sql, (chat_id,))
+        return result[0] if result else 'en'
     
     def is_user_blocked(self, chat_id):
         """Prüft ob Benutzer geblockt ist"""
@@ -227,11 +281,100 @@ class UserDatabase:
         finally:
             connection.close()
     
+    def get_notification_settings(self, chat_id):
+        """Gibt die Benachrichtigungseinstellungen für einen Benutzer zurück"""
+        sql = f"SELECT notifyVacationMode, notifyDoorPowerMeter, notifyDoorFrontDoor FROM {self.table_name} WHERE chatID = ?"
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        try:
+            cursor.execute(sql, (chat_id,))
+            result = cursor.fetchone()
+            if result:
+                return {
+                    'notifyVacationMode': bool(result[0]),
+                    'notifyDoorPowerMeter': bool(result[1]),
+                    'notifyDoorFrontDoor': bool(result[2])
+                }
+            # Standardwerte zurückgeben wenn Benutzer nicht gefunden
+            return {
+                'notifyVacationMode': True,
+                'notifyDoorPowerMeter': True,
+                'notifyDoorFrontDoor': True
+            }
+        except Error as e:
+            print(f"Fehler bei Abfrage Benachrichtigungseinstellungen: {e}")
+            return {
+                'notifyVacationMode': True,
+                'notifyDoorPowerMeter': True,
+                'notifyDoorFrontDoor': True
+            }
+        finally:
+            connection.close()
+    
+    def update_notification_setting(self, chat_id, setting, value):
+        """Aktualisiert eine einzelne Benachrichtigungseinstellung"""
+        valid_settings = ['notifyVacationMode', 'notifyDoorPowerMeter', 'notifyDoorFrontDoor']
+        if setting not in valid_settings:
+            raise ValueError(f"Ungültige Einstellung: {setting}")
+        
+        sql = f"UPDATE {self.table_name} SET {setting} = ? WHERE chatID = ?"
+        self.execute(sql, (int(value), chat_id))
+    
+    def update_all_notification_settings(self, chat_id, vacation_mode, door_power_meter, door_front_door):
+        """Aktualisiert alle Benachrichtigungseinstellungen"""
+        sql = f"""UPDATE {self.table_name} 
+                 SET notifyVacationMode = ?, notifyDoorPowerMeter = ?, notifyDoorFrontDoor = ? 
+                 WHERE chatID = ?"""
+        self.execute(sql, (int(vacation_mode), int(door_power_meter), int(door_front_door), chat_id))
+    
+    def grant_access(self, chat_id, days=30):
+        """Gewährt einem Benutzer Zugriff für eine bestimmte Anzahl von Tagen"""
+        allowed_until = DT.datetime.now() + DT.timedelta(days=days)
+        sql = f"UPDATE {self.table_name} SET allowedToDatetime = ? WHERE chatID = ?"
+        self.execute(sql, (allowed_until, chat_id))
+        return allowed_until
+    
+    def is_access_granted(self, chat_id):
+        """Prüft ob einem Benutzer Zugriff gewährt wurde (nach Admin-Freigabe)"""
+        sql = f"SELECT allowedToDatetime FROM {self.table_name} WHERE chatID = ?"
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        try:
+            cursor.execute(sql, (chat_id,))
+            result = cursor.fetchone()
+            if result:
+                allowed_until = DT.datetime.strptime(result[0], '%Y-%m-%d %H:%M:%S.%f')
+                return DT.datetime.now() < allowed_until
+            return False
+        except Error as e:
+            print(f"Fehler bei Prüfung des Zugriffs: {e}")
+            return False
+        finally:
+            connection.close()
+    
     def extend_access(self, chat_id, d=0):
         """Verlängert den Zugriff eines Benutzers"""
         allowed_until = DT.datetime.now() + DT.timedelta(days=d)
         sql = f"UPDATE {self.table_name} SET allowedToDatetime = ? WHERE chatID = ?"
         self.execute(sql, (allowed_until, chat_id))
+    
+    def get_pending_requests(self):
+        """Gibt alle User zurück, die auf Freigabe warten"""
+        sql = f"""SELECT chatID, firstname, lastname FROM {self.table_name} 
+                  WHERE allowedToDatetime < ? AND isAdmin = 0 
+                  ORDER BY allowedToDatetime DESC"""
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        try:
+            # User mit allowedToDatetime in der Vergangenheit sind wartend
+            now = DT.datetime.now()
+            cursor.execute(sql, (now,))
+            return cursor.fetchall()
+        except Error as e:
+            print(f"Fehler beim Abrufen der wartenden Anfragen: {e}")
+            return []
+        finally:
+            connection.close()
     
     def get_all_users(self):
         """Gibt alle Benutzer zurück"""

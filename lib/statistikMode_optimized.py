@@ -546,6 +546,23 @@ class OptimizedStatisticsManager:
         self.fritz_api.clear_cache()
         self._stats_cache.clear()
 
+
+def get_callback_handlers():
+    """Gibt die Callback-Handler-Konfiguration für StatistikMode zurück"""
+    return {
+        'patterns': [
+            r'select_heater_.*',
+            r'set_temp_.*',
+            r'cancel_temp_set',
+            r'cancel_window_mode',
+            r'window_disable_all', 
+            r'window_all_heaters',
+            r'window_heater_.*',
+            r'window_disable_.*'
+        ],
+        'handler': StatistikModeOptimized.handle_temp_callback
+    }
+
 # Globale Instanz
 stats_manager = OptimizedStatisticsManager()
 

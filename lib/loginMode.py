@@ -109,7 +109,9 @@ async def login(update, context, user_data, markupList):
         db.reset_failed_attempts(chat_id)
         
         if str(chat_id) == config.get_admin_chat_id():
-            db.add_user(chat_id, update.effective_user.first_name, is_admin=1)
+            # Sprache des Users ermitteln
+            user_language = update.effective_user.language_code if hasattr(update.effective_user, 'language_code') else 'en'
+            db.add_user(chat_id, update.effective_user.first_name, is_admin=1, language_code=user_language)
             await update.message.reply_text(
                 "Admin-Login erfolgreich!",
                 reply_markup= markupList[MAIN]
@@ -118,7 +120,9 @@ async def login(update, context, user_data, markupList):
             user_data['status'] = MAIN
             return MAIN
         else:
-            db.add_user(chat_id, update.effective_user.first_name)
+            # Sprache des Users ermitteln
+            user_language = update.effective_user.language_code if hasattr(update.effective_user, 'language_code') else 'en'
+            db.add_user(chat_id, update.effective_user.first_name, language_code=user_language)
             await update.message.reply_text(
                 "Login erfolgreich! Warte auf Admin-Freigabe...",
                 reply_markup= markupList[LOGIN]
