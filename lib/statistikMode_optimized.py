@@ -73,7 +73,9 @@ def get_callback_handlers():
             r'window_disable_all', 
             r'window_all_heaters',
             r'window_heater_.*',
-            r'window_disable_.*'
+            r'window_disable_.*',
+            r'set_window_duration_.*',
+            r'window_timer_.*'
         ],
         'handler': handle_temp_callback
     }
@@ -1485,28 +1487,19 @@ async def handle_temp_callback(update, context, user_data, markupList):
             user_data['awaiting_temp_input'] = False
             if 'pending_temp_ain' in user_data:
                 del user_data['pending_temp_ain']
-                
-    except Exception as e:
-        logger.error(f"Fehler in handle_temp_callback: {e}")
-        logger.debug(f"Exception in handle_temp_callback: {e}")
-        await query.edit_message_text("❌ Fehler bei der Verarbeitung")
-
-async def handle_window_callback(update, context):
-    """Handler für Fenster-Callbacks mit optimierter API"""
-    query = update.callback_query
-    await query.answer()
-    
-    try:
-        if query.data == 'cancel_window_mode':
+        
+        # Fenster-Offen-Modus Callbacks
+        elif callback_data == 'cancel_window_mode':
+            logger.debug("Processing cancel_window_mode callback")
             await query.edit_message_text("❌ Fenster-Modus abgebrochen")
             return
         
-        # Geräte abrufen
-        devices = stats_manager.fritz_api.get_devices(use_cache=True)
-        heaters = [d for d in devices if d.thermostat and d.thermostat.get('tsoll') is not None]
-        
-        if query.data == 'window_disable_all':
+        elif callback_data == 'window_disable_all':
+            logger.debug("Processing window_disable_all callback")
             # Alle Fenster-Modi deaktivieren
+            devices = stats_manager.fritz_api.get_devices(use_cache=True)
+            heaters = [d for d in devices if d.thermostat and d.thermostat.get('tsoll') is not None]
+            
             success_count = 0
             for heater in heaters:
                 if stats_manager.disable_window_open_mode(heater.ain):
@@ -1516,9 +1509,13 @@ async def handle_window_callback(update, context):
                 f"✅ Fenster-Modus bei {success_count}/{len(heaters)} Heizkörpern deaktiviert"
             )
         
-        elif query.data == 'window_all_heaters':
+        elif callback_data == 'window_all_heaters':
+            logger.debug("Processing window_all_heaters callback")
             # Alle Heizkörper für Fenster-Modus anzeigen
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            
+            devices = stats_manager.fritz_api.get_devices(use_cache=True)
+            heaters = [d for d in devices if d.thermostat and d.thermostat.get('tsoll') is not None]
             
             keyboard = []
             for heater in heaters:
@@ -1543,12 +1540,12 @@ async def handle_window_callback(update, context):
                 reply_markup=reply_markup, parse_mode='Markdown'
             )
         
-        elif query.data.startswith('window_heater_'):
+        elif callback_data.startswith('window_heater_'):
+            logger.debug(f"Processing window_heater_ callback: {callback_data}")
             # Spezifischen Heizkörper behandeln
-            logger.info(f"Window callback data: {query.data}")
             
             # Bessere Extraktion: Entferne "window_heater_" und teile den Rest
-            data_part = query.data[len('window_heater_'):]  # "14456 0864968_Küche Heizung"
+            data_part = callback_data[len('window_heater_'):]  # "14456 0864968_Küche Heizung"
             
             # Finde den letzten Underscore um Namen von AIN zu trennen
             last_underscore = data_part.rfind('_')
@@ -1590,6 +1587,7 @@ async def handle_window_callback(update, context):
             
             if current_status.get('windowopenactiv'):
                 # Deaktivieren
+                logger.info(f"Deaktiviere Fenster-Modus für {heater_name}")
                 if stats_manager.disable_window_open_mode(ain):
                     await query.edit_message_text(
                         f"✅ Fenster-Modus für {heater_name} deaktiviert"
@@ -1599,51 +1597,146 @@ async def handle_window_callback(update, context):
                         f"❌ Fehler beim Deaktivieren des Fenster-Modus für {heater_name}"
                     )
             else:
-                # Aktivieren mit Standard-Dauer aus Konfiguration
-                from lib.config import Config
-                config_obj = Config()
-                window_config = config_obj.get('window_open', {})
-                default_duration = window_config.get('default_duration_minutes', 30)
-                
-                result = stats_manager.set_window_open_mode(ain, duration_minutes=default_duration)
-                
-                if result['success']:
-                    end_time = result['end_time']
-                    await query.edit_message_text(
-                        f"✅ Fenster-Modus für {heater_name} aktiviert\n"
-                        f"⏰ Bis: {end_time.strftime('%H:%M')} Uhr\n"
-                        f"📅 Dauer: {result['duration_minutes']} Minuten"
-                    )
-                else:
+                # Aktivieren mit Konfiguration und Reminder
+                logger.info(f"Aktiviere Fenster-Modus für {heater_name}")
+                try:
+                    from lib.config import Config
+                    config_obj = Config()
+                    window_config = config_obj.get('window_open', {})
+                    default_duration = window_config.get('default_duration_minutes', 15)  # Config-Standard: 15 Minuten
+                    reminder_minutes = window_config.get('reminder_minutes_before', 5)   # Config-Standard: 5 Minuten
+                    
+                    logger.debug(f"Konfiguration: Dauer={default_duration} Min, Reminder={reminder_minutes} Min")
+                    
+                    result = stats_manager.set_window_open_mode(ain, duration_minutes=default_duration)
+                    
+                    if result['success']:
+                        end_time = result['end_time']
+                        
+                        # Reminder-Timer starten
+                        chat_id = update.effective_chat.id
+                        reminder_time = end_time - timedelta(minutes=reminder_minutes)
+                        
+                        # Timer für Reminder
+                        def reminder_callback():
+                            try:
+                                import asyncio
+                                from telegram import Bot
+                                bot = Bot(token=config_obj.get_telegram_token())
+                                
+                                reminder_message = (
+                                    f"⏰ *Erinnerung: Fenster-Modus*\n\n"
+                                    f"Der Fenster-Modus für {heater_name} endet in {reminder_minutes} Minuten!\n"
+                                    f"🕐 Um: {end_time.strftime('%H:%M')} Uhr"
+                                )
+                                
+                                asyncio.run(bot.send_message(
+                                    chat_id=chat_id,
+                                    text=reminder_message,
+                                    parse_mode='Markdown'
+                                ))
+                                logger.info(f"Reminder für Fenster-Modus {heater_name} gesendet an {chat_id}")
+                            except Exception as e:
+                                logger.error(f"Fehler beim Senden des Reminders: {e}")
+                        
+                        # Timer für das Ende des Fenster-Modus
+                        def end_callback():
+                            try:
+                                import asyncio
+                                from telegram import Bot
+                                bot = Bot(token=config_obj.get_telegram_token())
+                                
+                                # Fenster-Modus deaktivieren
+                                stats_manager.disable_window_open_mode(ain)
+                                
+                                end_message = (
+                                    f"✅ *Fenster-Modus beendet*\n\n"
+                                    f"Der Fenster-Modus für {heater_name} wurde automatisch beendet.\n"
+                                    f"🕐 Um: {datetime.now().strftime('%H:%M')} Uhr"
+                                )
+                                
+                                asyncio.run(bot.send_message(
+                                    chat_id=chat_id,
+                                    text=end_message,
+                                    parse_mode='Markdown'
+                                ))
+                                logger.info(f"Fenster-Modus für {heater_name} automatisch beendet")
+                                
+                                # Timer aus globaler Liste entfernen
+                                if chat_id in window_open_timers and ain in window_open_timers[chat_id]:
+                                    del window_open_timers[chat_id][ain]
+                                    
+                            except Exception as e:
+                                logger.error(f"Fehler beim Beenden des Fenster-Modus: {e}")
+                        
+                        # Timer starten
+                        if chat_id not in window_open_timers:
+                            window_open_timers[chat_id] = {}
+                        
+                        # Alte Timer löschen falls vorhanden
+                        if ain in window_open_timers[chat_id]:
+                            old_timer = window_open_timers[chat_id][ain].get('reminder_timer')
+                            if old_timer and old_timer.is_alive():
+                                old_timer.cancel()
+                            
+                            old_end_timer = window_open_timers[chat_id][ain].get('end_timer')
+                            if old_end_timer and old_end_timer.is_alive():
+                                old_end_timer.cancel()
+                        
+                        # Neue Timer erstellen und starten
+                        import threading
+                        reminder_timer = threading.Timer(
+                            (reminder_time - datetime.now()).total_seconds(),
+                            reminder_callback
+                        )
+                        reminder_timer.start()
+                        
+                        end_timer = threading.Timer(
+                            (end_time - datetime.now()).total_seconds(),
+                            end_callback
+                        )
+                        end_timer.start()
+                        
+                        # Timer speichern
+                        window_open_timers[chat_id][ain] = {
+                            'end_time': end_time,
+                            'reminder_timer': reminder_timer,
+                            'end_timer': end_timer
+                        }
+                        
+                        await query.edit_message_text(
+                            f"✅ Fenster-Modus für {heater_name} aktiviert\n"
+                            f"⏰ Bis: {end_time.strftime('%H:%M')} Uhr\n"
+                            f"📅 Dauer: {result['duration_minutes']} Minuten\n"
+                            f"🔔 Erinnerung: {reminder_minutes} Minuten vor Ablauf"
+                        )
+                        
+                        logger.info(f"Fenster-Modus für {heater_name} aktiviert mit Reminder um {reminder_time.strftime('%H:%M')}")
+                        
+                    else:
+                        await query.edit_message_text(
+                            f"❌ Fehler beim Aktivieren des Fenster-Modus für {heater_name}\n"
+                            f"Fehler: {result.get('error', 'Unbekannt')}"
+                        )
+                except Exception as e:
+                    logger.error(f"Fehler beim Aktivieren des Fenster-Modus: {e}")
                     await query.edit_message_text(
                         f"❌ Fehler beim Aktivieren des Fenster-Modus für {heater_name}\n"
-                        f"Fehler: {result.get('error', 'Unbekannt')}"
+                        f"Fehler: {str(e)}"
                     )
         
-        elif query.data.startswith('window_disable_'):
-            # Spezifischen Heizkörper deaktivieren
-            parts = query.data.split('_', 2)
-            if len(parts) >= 2:
-                ain = parts[1]
-                heater_name = f"Heizkörper {ain}"
+        elif callback_data.startswith('set_window_duration_') or callback_data.startswith('window_timer_'):
+            logger.debug(f"Processing window duration/timer callback: {callback_data}")
+            await query.edit_message_text(
+                "⏰ **Fenster-Modus Timer**\n\n"
+                "Diese Funktion wird noch implementiert...",
+                parse_mode='Markdown'
+            )
                 
-                # Namen versuchen zu ermitteln
-                for heater in heaters:
-                    if heater.ain == ain:
-                        heater_name = heater.name
-                        break
-                
-                if stats_manager.disable_window_open_mode(ain):
-                    await query.edit_message_text(
-                        f"✅ Fenster-Modus für {heater_name} deaktiviert"
-                    )
-                else:
-                    await query.edit_message_text(
-                        f"❌ Fehler beim Deaktivieren des Fenster-Modus für {heater_name}"
-                    )
-        
     except Exception as e:
-        logger.error(f"Fehler bei Fenster-Callback: {e}")
+        logger.error(f"Fehler in handle_temp_callback: {e}")
+        logger.debug(f"Exception in handle_temp_callback: {e}")
+        await query.edit_message_text("❌ Fehler bei der Verarbeitung")
 
 async def window_open_mode(update, context, user_data, markupList):
     """HKR Fenster-Offen Modus - Hauptfunktion"""
