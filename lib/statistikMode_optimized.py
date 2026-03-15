@@ -41,6 +41,43 @@ from lib.fritzbox_api_optimized import OptimizedFritzBoxAPI
 window_open_timers = {}  # {chat_id: {ain: end_time, timer_thread: thread}}
 window_open_notifications = {}  # {chat_id: {ain: notification_sent}}
 
+# Module-level Variablen für Bot-Kompatibilität
+tastertur = {
+    'status': 'Status',
+    'set_temp': 'Temperatur setzen',
+    'temp_history': 'Temp.-Verlauf',
+    'vacation_mode': 'Urlaubsmodus',
+    'window_open_mode': 'Fenster-Offen Modus',
+    'back': 'Zurueck'
+}
+
+# Funktionen Map{Funk-Name, Beschreibung in Help}
+textbefehl = {
+    'status': 'Zeigt Ziel- und Ist-Temperatur aller Heizkörper an',
+    'set_temp': 'Setzt die Temperatur für einen Heizkörper',
+    'temp_history': 'Zeigt Temperaturverlauf aller Heizungen der letzten 24 Stunden als Graphik an',
+    'vacation_mode': 'Schaltet FritzBox-Urlaubsschaltung für alle Heizkörper ein/aus',
+    'window_open_mode': 'Aktiviert den Fenster-Offen Modus für Heizkörper mit konfigurierbarer Dauer und Erinnerung',
+    'back': 'Wechselt zurück ins Main-Menu'
+}
+
+def get_callback_handlers():
+    """Gibt die Callback-Handler-Konfiguration für StatistikMode zurück"""
+    logger.debug("StatistikMode get_callback_handlers() aufgerufen")
+    return {
+        'patterns': [
+            r'select_heater_.*',
+            r'set_temp_.*',
+            r'cancel_temp_set',
+            r'cancel_window_mode',
+            r'window_disable_all', 
+            r'window_all_heaters',
+            r'window_heater_.*',
+            r'window_disable_.*'
+        ],
+        'handler': handle_temp_callback
+    }
+
 class OptimizedStatisticsManager:
     """Optimierter Statistik-Manager mit Caching und Batch-Operationen"""
     
@@ -547,45 +584,9 @@ class OptimizedStatisticsManager:
         self._stats_cache.clear()
 
 
-# Globale Instanz
+# Globale Instanz (nach der Klassendefinition)
 stats_manager = OptimizedStatisticsManager()
 
-def get_callback_handlers():
-    """Gibt die Callback-Handler-Konfiguration für StatistikMode zurück"""
-    print("DEBUG: StatistikMode get_callback_handlers() aufgerufen")
-    return {
-        'patterns': [
-            r'select_heater_.*',
-            r'set_temp_.*',
-            r'cancel_temp_set',
-            r'cancel_window_mode',
-            r'window_disable_all', 
-            r'window_all_heaters',
-            r'window_heater_.*',
-            r'window_disable_.*'
-        ],
-        'handler': handle_temp_callback
-    }
-
-# Module-level tastertur für Bot-Kompatibilität
-tastertur = {
-    'status': 'Status',
-    'set_temp': 'Temperatur setzen',
-    'temp_history': 'Temp.-Verlauf',
-    'vacation_mode': 'Urlaubsmodus',
-    'window_open_mode': 'Fenster-Offen Modus',
-    'back': 'Zurueck'
-}
-
-# Funktionen Map{Funk-Name, Beschreiung in Help}
-textbefehl = {
-    'status': 'Zeigt Ziel- und Ist-Temperatur aller Heizkörper an',
-    'set_temp': 'Setzt die Temperatur für einen Heizkörper',
-    'temp_history': 'Zeigt Temperaturverlauf aller Heizungen der letzten 24 Stunden als Graphik an',
-    'vacation_mode': 'Schaltet FritzBox-Urlaubsschaltung für alle Heizkörper ein/aus',
-    'window_open_mode': 'Aktiviert den Fenster-Offen Modus für Heizkörper mit konfigurierbarer Dauer und Erinnerung',
-    'back': 'Wechselt zurück ins Main-Menu'
-}
 
 def get_keyboard_markup(keyboard_data):
     """Hilfsfunktion zur konsistenten Keyboard-Behandlung"""
@@ -1282,41 +1283,45 @@ async def temp_history(update, context, user_data, markupList):
 class StatistikModeOptimized:
     """Optimierter Statistik-Modus mit Callback-Handler"""
     
+    # Klassenattribute mit globalen Werten (für buildKeyboard() Kompatibilität)
+    tastertur = tastertur.copy()
+    textbefehl = textbefehl.copy()
+    
     @staticmethod
     def get_callback_handlers():
         """Gibt Callback-Handler für Inline-Keyboards zurück"""
-        print("DEBUG: StatistikModeOptimized.get_callback_handlers() aufgerufen")
+        logger.debug("StatistikModeOptimized.get_callback_handlers() aufgerufen")
         return get_callback_handlers()
     
     @staticmethod
     async def handle_temp_callback(update, context, user_data, markupList):
         """Handler für Temperatur-Callbacks - delegiert zur globalen Funktion"""
-        print("DEBUG: StatistikModeOptimized.handle_temp_callback() aufgerufen - delegiere zur globalen Funktion")
+        logger.debug("StatistikModeOptimized.handle_temp_callback() aufgerufen - delegiere zur globalen Funktion")
         return await handle_temp_callback(update, context, user_data, markupList)
 
 async def handle_temp_callback(update, context, user_data, markupList):
     """Handler für Temperatur-Callbacks mit optimierter API"""
-    print(f"DEBUG: handle_temp_callback aufgerufen")
+    logger.debug("handle_temp_callback aufgerufen")
     query = update.callback_query
-    print(f"DEBUG: Callback query data: {query.data}")
+    logger.debug(f"Callback query data: {query.data}")
     await query.answer()
     
     try:
         callback_data = query.data
-        print(f"DEBUG: Processing callback_data: {callback_data}")
+        logger.debug(f"Processing callback_data: {callback_data}")
         
         if callback_data == 'cancel_temp_set':
-            print("DEBUG: Processing cancel_temp_set")
+            logger.debug("Processing cancel_temp_set")
             await query.edit_message_text("Temperatursetzung abgebrochen.")
             user_data['temp_set_mode'] = False
             return
         
         if callback_data.startswith('select_heater_'):
-            print("DEBUG: Processing select_heater_ callback")
+            logger.debug("Processing select_heater_ callback")
             ain = callback_data.replace('select_heater_', '')
-            print(f"DEBUG: Extracted AIN: {ain}")
+            logger.debug(f"Extracted AIN: {ain}")
             heaters = user_data.get('heaters', [])
-            print(f"DEBUG: Available heaters: {[h.name for h in heaters]}")
+            logger.debug(f"Available heaters: {[h.name for h in heaters]}")
             
             # Gewählten Heizkörper finden
             selected_heater = None
@@ -1326,21 +1331,21 @@ async def handle_temp_callback(update, context, user_data, markupList):
                     break
             
             if not selected_heater:
-                print(f"DEBUG: Heater with AIN {ain} not found!")
+                logger.warning(f"Heater with AIN {ain} not found!")
                 await query.edit_message_text("Fehler: Heizkörper nicht gefunden.")
                 return
             
             name = selected_heater.name
             tsoll = selected_heater.thermostat.get('tsoll')
-            print(f"DEBUG: Selected heater: {name}, tsoll: {tsoll}")
+            logger.debug(f"Selected heater: {name}, tsoll: {tsoll}")
             
             # Next-Change Information holen
             next_change_info = stats_manager.get_next_temperature_change(ain)
-            print(f"DEBUG: Next change info: {next_change_info}")
+            logger.debug(f"Next change info: {next_change_info}")
             
             # Aktuelle Zieltemperatur
             current_target = int(tsoll) / 2 if tsoll is not None else 20.0
-            print(f"DEBUG: Current target temperature: {current_target}")
+            logger.debug(f"Current target temperature: {current_target}")
             
             # Inline-Keyboard für Temparaturauswahl erstellen
             keyboard = []
@@ -1372,7 +1377,7 @@ async def handle_temp_callback(update, context, user_data, markupList):
             keyboard.append([{'text': '❌ Abbrechen', 'callback_data': 'cancel_temp_set'}])
             
             reply_markup = {'inline_keyboard': keyboard}
-            print(f"DEBUG: Created keyboard with {len(keyboard)} rows")
+            logger.debug(f"Created keyboard with {len(keyboard)} rows")
             
             # Nachricht mit next_change Information erstellen
             message_text = f"🌡️ *Temperatur für {name} wählen:*\n\n"
@@ -1398,7 +1403,7 @@ async def handle_temp_callback(update, context, user_data, markupList):
                     message_text += f"🔄 Nächste Änderung: {next_temp_display:.1f}°C{time_text}\n"
             
             message_text += f"\nWähle die neue Zieltemperatur:"
-            print(f"DEBUG: Sending message: {message_text}")
+            logger.debug(f"Sending message: {message_text}")
             
             await query.edit_message_text(message_text,
                                         parse_mode='Markdown',
@@ -1407,12 +1412,12 @@ async def handle_temp_callback(update, context, user_data, markupList):
             return
         
         if callback_data.startswith('set_temp_'):
-            print("DEBUG: Processing set_temp_ callback")
+            logger.debug("Processing set_temp_ callback")
             parts = callback_data.replace('set_temp_', '').split('_')
             ain = parts[0]
             temp_value = int(parts[1])  # Temperatur in 0.5°C Schritten
             temp_celsius = temp_value / 2
-            print(f"DEBUG: Setting temperature - AIN: {ain}, temp_value: {temp_value}, temp_celsius: {temp_celsius}")
+            logger.debug(f"Setting temperature - AIN: {ain}, temp_value: {temp_value}, temp_celsius: {temp_celsius}")
             
             # Heizkörper-Name finden
             heaters = user_data.get('heaters', [])
@@ -1426,7 +1431,7 @@ async def handle_temp_callback(update, context, user_data, markupList):
             logger.info(f"Setze Temperatur für {heater_name} (AIN: {ain}) auf {temp_celsius:.1f}°C")
             success = stats_manager.fritz_api.set_temperature(ain, temp_celsius)
             logger.info(f"Temperatur-Setzung Ergebnis: {success}")
-            print(f"DEBUG: Temperature setting result: {success}")
+            logger.debug(f"Temperature setting result: {success}")
             
             if success:
                 # Next-Change Information holen
@@ -1475,7 +1480,7 @@ async def handle_temp_callback(update, context, user_data, markupList):
         
         elif callback_data.startswith('cancel_temp_'):
             # Temperatur-Eingabe abbrechen
-            print("DEBUG: Processing cancel_temp_ callback")
+            logger.debug("Processing cancel_temp_ callback")
             await query.edit_message_text("❌ Temperatur-Einstellung abgebrochen")
             user_data['awaiting_temp_input'] = False
             if 'pending_temp_ain' in user_data:
@@ -1483,7 +1488,7 @@ async def handle_temp_callback(update, context, user_data, markupList):
                 
     except Exception as e:
         logger.error(f"Fehler in handle_temp_callback: {e}")
-        print(f"DEBUG: Exception in handle_temp_callback: {e}")
+        logger.debug(f"Exception in handle_temp_callback: {e}")
         await query.edit_message_text("❌ Fehler bei der Verarbeitung")
 
 async def handle_window_callback(update, context):
@@ -2081,103 +2086,3 @@ async def back(update, context, user_data, markupList):
 async def default(update, context, user_data, markupList):
     """Default-Funktion - zeigt Status an"""
     return await status(update, context, user_data, markupList)
-
-# Import time für Timer
-import time
-
-# Tastatur-Befehle und Textbefehle für Kompatibilität
-tastertur = {
-    'status': 'Heizung',
-    'set_temp': 'Temperatur setzen',
-    'temp_history': 'Temp.-Verlauf',
-    'back': 'Zurück'
-}
-
-textbefehl = {
-    'status': 'Alle Heizkörper und deren Temperaturen anzeigen',
-    'set_temp': 'Temperatur der Heizungen setzen',
-    'temp_history': 'Temp.-Verlauf der Heizungen anzeigen',
-    'back': 'Zurück zum Hauptmenü'
-}
-
-# Klasse für Kompatibilität mit fritzdect_bot.py
-class StatistikModeOptimized:
-    """Wrapper-Klasse für Kompatibilität mit dem Bot-Framework"""
-    
-    # Tastatur-Befehle und Textbefehle für Kompatibilität
-    tastertur = tastertur
-    textbefehl = textbefehl
-    
-    @staticmethod
-    async def default(update, context, user_data, markupList):
-        """Default-Funktion - zeigt Status an"""
-        return await status(update, context, user_data, markupList)
-    
-    @staticmethod
-    async def status(update, context, user_data, markupList):
-        """Status-Funktion - delegiert zur globalen Funktion"""
-        return await status(update, context, user_data, markupList)
-    
-    @staticmethod
-    async def set_temp(update, context, user_data, markupList):
-        """Temperatur setzen - delegiert zur globalen Funktion"""
-        return await set_temp(update, context, user_data, markupList)
-    
-    @staticmethod
-    async def temp_history(update, context, user_data, markupList):
-        """Temperatur-Verlauf - delegiert zur globalen Funktion"""
-        return await temp_history(update, context, user_data, markupList)
-    
-    @staticmethod
-    async def back(update, context, user_data, markupList):
-        """Zurück - delegiert zur globalen Funktion"""
-        return await back(update, context, user_data, markupList)
-    
-    @staticmethod
-    def get_callback_handlers():
-        """Gibt Callback-Handler für Inline-Keyboards zurück"""
-        return {
-            'handler': StatistikModeOptimized.handle_temp_callback,
-            'patterns': [
-                r'select_heater_.*',
-                r'set_temp_.*',
-                r'cancel_temp_set',
-                r'cancel_window_mode',
-                r'window_disable_all', 
-                r'window_all_heaters',
-                r'window_heater_.*',
-                r'window_disable_.*'
-            ]
-        }
-    
-    @staticmethod
-    async def handle_temp_callback(update, context):
-        """Handler für Temperatur-Callbacks mit optimierter API"""
-        query = update.callback_query
-        await query.answer()
-        
-        callback_data = query.data
-        user_data = context.user_data
-        
-        try:
-            if callback_data.startswith('set_temp_'):
-                # Temperatur setzen
-                ain = callback_data.replace('set_temp_', '')
-                await query.edit_message_text(
-                    f"🌡️ **Temperatur für Gerät {ain} setzen**\n\n"
-                    f"Bitte gib die gewünschte Temperatur ein (z.B. 21.5):",
-                    parse_mode='Markdown'
-                )
-                user_data['pending_temp_ain'] = ain
-                user_data['awaiting_temp_input'] = True
-                
-            elif callback_data.startswith('cancel_temp_'):
-                # Temperatur-Eingabe abbrechen
-                await query.edit_message_text("❌ Temperatur-Einstellung abgebrochen")
-                user_data['awaiting_temp_input'] = False
-                if 'pending_temp_ain' in user_data:
-                    del user_data['pending_temp_ain']
-                    
-        except Exception as e:
-            logger.error(f"Fehler in handle_temp_callback: {e}")
-            await query.edit_message_text("❌ Fehler bei der Verarbeitung")
