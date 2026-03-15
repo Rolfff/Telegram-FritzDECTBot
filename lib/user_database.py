@@ -27,12 +27,22 @@ class UserDatabase:
         cursor = connection.cursor()
         try:
             if params:
+                print(f"DEBUG: Executing SQL: {sql} with params: {params}")
                 cursor.execute(sql, params)
             else:
+                print(f"DEBUG: Executing SQL: {sql}")
                 cursor.execute(sql)
+            
+            # Prüfe wie viele Zeilen betroffen sind
+            rows_affected = cursor.rowcount
+            print(f"DEBUG: Rows affected: {rows_affected}")
+            
             connection.commit()
+            print(f"DEBUG: Transaction committed successfully")
+            return True  # Erfolg zurückgeben
         except Error as e:
-            print(f"{str(e)} SQL-Query: {sql}")
+            print(f"ERROR: {str(e)} SQL-Query: {sql} Params: {params}")
+            return False  # Fehler zurückgeben
         finally:
             connection.close()
     
@@ -127,17 +137,44 @@ class UserDatabase:
             connection.close()
     
     def add_user(self, chat_id, firstname=None, lastname=None, is_admin=0, language_code='en'):
-        """Fügt einen neuen Benutzer hinzu"""
+        """Fügt einen neuen Benutzer hinzu (überschreibt keine existierenden Benutzer)"""
+        # Prüfen ob Benutzer bereits existiert
+        if self.user_exists(chat_id):
+            print(f"User {chat_id} already exists, not adding/updating")
+            return False
+            
         allowed_until = DT.datetime.now() + DT.timedelta(hours=-1)
-        sql = f"""INSERT OR REPLACE INTO {self.table_name} 
+        sql = f"""INSERT INTO {self.table_name} 
                  (chatID, firstname, lastname, isAdmin, allowedToDatetime, failedAttempts, blockedUntil, language_code) 
                  VALUES (?, ?, ?, ?, ?, 0, NULL, ?)"""
-        self.execute(sql, (chat_id, firstname, lastname, is_admin, allowed_until, language_code))
+        return self.execute(sql, (chat_id, firstname, lastname, is_admin, allowed_until, language_code))
+    
+    def update_user_info(self, chat_id, firstname=None, lastname=None):
+        """Aktualisiert Benutzer-Info ohne Einstellungen zu überschreiben"""
+        if firstname is None and lastname is None:
+            return True
+            
+        updates = []
+        params = []
+        
+        if firstname is not None:
+            updates.append("firstname = ?")
+            params.append(firstname)
+        if lastname is not None:
+            updates.append("lastname = ?")
+            params.append(lastname)
+        
+        if not updates:
+            return True
+            
+        params.append(chat_id)
+        sql = f"UPDATE {self.table_name} SET {', '.join(updates)} WHERE chatID = ?"
+        return self.execute(sql, params)
     
     def update_user_language(self, chat_id, language_code):
         """Aktualisiert die Spracheinstellung eines Benutzers"""
         sql = f"UPDATE {self.table_name} SET language_code = ? WHERE chatID = ?"
-        self.execute(sql, (language_code, chat_id))
+        return self.execute(sql, (language_code, chat_id))
     
     def get_user_language(self, chat_id):
         """Gibt die Spracheinstellung eines Benutzers zurück"""
@@ -318,14 +355,38 @@ class UserDatabase:
             raise ValueError(f"Ungültige Einstellung: {setting}")
         
         sql = f"UPDATE {self.table_name} SET {setting} = ? WHERE chatID = ?"
-        self.execute(sql, (int(value), chat_id))
+        return self.execute(sql, (int(value), chat_id))
     
     def update_all_notification_settings(self, chat_id, vacation_mode, door_power_meter, door_front_door):
         """Aktualisiert alle Benachrichtigungseinstellungen"""
         sql = f"""UPDATE {self.table_name} 
                  SET notifyVacationMode = ?, notifyDoorPowerMeter = ?, notifyDoorFrontDoor = ? 
                  WHERE chatID = ?"""
-        self.execute(sql, (int(vacation_mode), int(door_power_meter), int(door_front_door), chat_id))
+        return self.execute(sql, (int(vacation_mode), int(door_power_meter), int(door_front_door), chat_id))
+    
+    def debug_user_settings(self, chat_id):
+        """Debug-Methode: Zeigt alle Einstellungen eines Benutzers"""
+        sql = f"""SELECT chatID, firstname, language_code, notifyVacationMode, notifyDoorPowerMeter, notifyDoorFrontDoor 
+                 FROM {self.table_name} WHERE chatID = ?"""
+        result = self.fetch_one(sql, (chat_id,))
+        if result:
+            print(f"User {chat_id} settings:")
+            print(f"  Name: {result[1]}")
+            print(f"  Language: {result[2]}")
+            print(f"  Vacation Notifications: {result[3]}")
+            print(f"  Power Notifications: {result[4]}")
+            print(f"  Door Notifications: {result[5]}")
+            return {
+                'chatID': result[0],
+                'firstname': result[1],
+                'language_code': result[2],
+                'notifyVacationMode': bool(result[3]),
+                'notifyDoorPowerMeter': bool(result[4]),
+                'notifyDoorFrontDoor': bool(result[5])
+            }
+        else:
+            print(f"User {chat_id} not found in database")
+            return None
     
     def grant_access(self, chat_id, days=30):
         """Gewährt einem Benutzer Zugriff für eine bestimmte Anzahl von Tagen"""
