@@ -19,7 +19,7 @@ tastertur = {
     'displayUsers': 'Zeige alle User',
     'deleteUsers': 'Lösche User',
     'show_config': 'Konfig anzeigen',
-    'grant_access': 'Zugriff gewähren',
+    'grant_access': 'Zugriff verlängern',
     'back': 'Zurück'
 }
 
@@ -29,7 +29,7 @@ textbefehl = {
     'displayUsers': 'Zeigt alle registrierten Benutzer',
     'deleteUsers': 'Löscht einen Benutzer aus der Datenbank',
     'show_config': 'Zeigt die aktuelle Bot-Konfiguration',
-    'grant_access': 'Gewährt einem Benutzer Zugriff für bestimmte Tage',
+    'grant_access': 'Verlängert den Zugriff eines Benutzers',
     'back': 'Kehrt zum Hauptmenü zurück'
 }
 
@@ -56,7 +56,12 @@ class AdminMode:
                 r'approve_request_.*',
                 r'reject_request_.*',
                 r'grant_days_.*',
-                r'custom_days_.*'
+                r'custom_days_.*',
+                r'extend_access_.*',
+                r'extend_days_.*',
+                r'extend_custom_.*',
+                r'refresh_user_list',
+                r'cancel_extend_access'
             ],
             'handler': AdminMode.handle_request_callback
         }
@@ -68,9 +73,21 @@ class AdminMode:
         if user_data.get('waiting_for_custom_days'):
             return await AdminMode.handle_custom_days(update, context, user_data, markupList)
         
+        # Prüfen ob auf benutzerdefinierte Verlängerungstage gewartet wird
+        if user_data.get('waiting_for_extend_days'):
+            return await AdminMode.handle_extend_days(update, context, user_data, markupList)
+        
         # Prüfen ob auf User-Löschung gewartet wird
         if user_data.get('deleteUserList'):
             return await AdminMode.handle_delete_user(update, context, user_data, markupList)
+        
+        # Prüfen ob Abbruch-Befehle für benutzerdefinierte Eingabe
+        message_text = update.message.text.strip().lower() if update.message else ""
+        if message_text in ['abbruch', 'abbrechen', 'cancel', 'stop', 'exit']:
+            user_data['extend_access_chat_id'] = None
+            user_data['waiting_for_extend_days'] = None
+            await update.message.reply_text("❌ Eingabe abgebrochen", reply_markup=user_data['keyboard'])
+            return context.user_data['status']
         
         # Ansonsten Hilfe anzeigen
         return await AdminMode.help(update, context, user_data, markupList)
@@ -85,7 +102,7 @@ class AdminMode:
             "• Zeige alle User - Listet alle registrierten Benutzer\n"
             "• Lösche User - Entfernt einen Benutzer\n"
             "• Konfig anzeigen - Zeigt Bot-Konfiguration\n"
-            "• Zugriff gewähren - Manuelle Zugriffsgewährung\n\n"
+            "• Zugriff verlängern - Verlängert den Zugriff eines Benutzers\n\n"
             "💡 Nutze /help für alle Befehle"
         )
         
@@ -408,62 +425,65 @@ class AdminMode:
     
     @staticmethod
     async def grant_access(update, context, user_data, markupList):
-        """Gewährt einem Benutzer Zugriff für bestimmte Tage"""
+        """Zeigt Benutzerliste zur Zugriffverlängerung mit Inline-Tastatur"""
+        logger.info(f"grant_access aufgerufen mit Text: {update.message.text}")
         global db
         if db is None:
             await update.message.reply_text("❌ Datenbank nicht verfügbar. Bitte kontaktiere den Admin.", reply_markup=user_data['keyboard'])
             return context.user_data['status']
         
         try:
-            # Erwarte: /grant_access chat_id tage
-            message_text = update.message.text.strip()
-            parts = message_text.split()
+            # Alle Benutzer abrufen, die Zugriff haben oder hatten
+            all_users = db.get_all_users()
             
-            if len(parts) < 3:
-                await update.message.reply_text(
-                    '❌ Falsches Format! Benutze: /grant_access chat_id tage\n'
-                    f'Beispiel: /grant_access 123456789 30'
-                )
+            if not all_users:
+                await update.message.reply_text("📋 **Keine Benutzer gefunden**", reply_markup=user_data['keyboard'])
                 return context.user_data['status']
             
-            chat_id = parts[1]
-            try:
-                days = int(parts[2])
-            except ValueError:
-                await update.message.reply_text(
-                    '❌ Ungültige Anzahl von Tagen! Muss eine ganze Zahl sein.'
-                )
-                return context.user_data['status']
+            # Inline-Tastatur für Benutzerauswahl erstellen
+            keyboard = []
+            for user in all_users:
+                chat_id, firstname, lastname, is_admin, allowed_to, failed_attempts, blocked_until, *rest = user
+                name = f"{firstname or 'Unbekannt'} {lastname or ''}".strip()
+                
+                # Status-Emoji basierend auf Zugriff
+                if is_admin:
+                    status_emoji = "👑"
+                elif allowed_to:
+                    try:
+                        allowed_until = DT.datetime.strptime(allowed_to, '%Y-%m-%d %H:%M:%S.%f')
+                        if DT.datetime.now() < allowed_until:
+                            status_emoji = "✅"
+                        else:
+                            status_emoji = "⏳"
+                    except:
+                        status_emoji = "⏳"
+                else:
+                    status_emoji = "❌"
+                
+                # Button-Text erstellen
+                button_text = f"{status_emoji} {name} (ID: {chat_id})"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f'extend_access_{chat_id}')])
             
-            # Prüfen ob Benutzer existiert
-            if not db.user_exists(int(chat_id)):
-                await update.message.reply_text(
-                    f'❌ Benutzer mit ID {chat_id} existiert nicht.'
-                )
-                return context.user_data['status']
+            # Zusätzliche Optionen
+            keyboard.extend([
+                [InlineKeyboardButton("🔄 Liste aktualisieren", callback_data='refresh_user_list')],
+                [InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_extend_access')]
+            ])
             
-            # Zugriff gewähren
-            allowed_until = db.grant_access(int(chat_id), days)
-            
-            # Benachrichtigung an den Benutzer senden
-            try:
-                await context.bot.send_message(
-                    chat_id=int(chat_id),
-                    text=f'✅ **Zugriff gewährt!**\n\n'
-                         f'📅 Du kannst den Bot jetzt bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr nutzen.\n\n'
-                         f'Viel Spaß mit dem FritzDECT-Bot! 🤖'
-                )
-            except Exception as e:
-                logger.error(f"Failed to notify user about access grant: {e}")
-            
-            # Bestätigung an Admin senden und im Admin-Mode bleiben
-            context.user_data['status'] = ADMIN
-            context.user_data['keyboard'] = markupList[ADMIN]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
             await update.message.reply_text(
-                f'✅ Zugriff für Benutzer {chat_id} bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr gewährt.',
-                reply_markup=user_data['keyboard']
+                "🔧 **Zugriff verlängern:**\n\n"
+                "Wähle einen Benutzer aus, dessen Zugriff du verlängern möchtest:\n\n"
+                "👑 Admin | ✅ Aktiv | ⏳ Wartend/Abgelaufen | ❌ Kein Zugriff",
+                reply_markup=reply_markup
             )
+            
+            # Im Admin-Mode bleiben
+            context.user_data['status'] = ADMIN
+            context.user_data['keyboard'] = markupList[ADMIN]
+            return ADMIN
             
         except Exception as e:
             await update.message.reply_text(f'❌ Fehler: {str(e)}', reply_markup=user_data['keyboard'])
@@ -486,11 +506,19 @@ class AdminMode:
     @staticmethod
     async def handle_request_callback(update, context, user_data, markupList):
         """Handler für Request-Callbacks von Inline-Buttons"""
+        # Sicherstellen, dass dies ein Callback-Query ist
+        if not hasattr(update, 'callback_query'):
+            logger.error(f"handle_request_callback ohne Callback-Query aufgerufen. Update-Typ: {type(update)}")
+            return context.user_data['status']
+        
         query = update.callback_query
         await query.answer()
         
         callback_data = query.data
         logger.info(f"Admin callback received: {callback_data}")
+        
+        # Datenbank-Instanz holen
+        db = AdminMode.db
         
         try:
             if callback_data.startswith('approve_request_'):
@@ -510,22 +538,48 @@ class AdminMode:
                 chat_id = int(callback_data.split('_')[2])
                 return await AdminMode._request_custom_days(update, context, user_data, markupList, chat_id)
             
+            elif callback_data.startswith('extend_access_'):
+                chat_id = int(callback_data.split('_')[2])
+                logger.info(f"extend_access callback erhalten: chat_id={chat_id}")
+                return await AdminMode._handle_extend_access(update, context, user_data, markupList, chat_id)
+            
+            elif callback_data == 'refresh_user_list':
+                return await AdminMode._refresh_user_list(update, context, user_data, markupList)
+            
+            elif callback_data == 'cancel_extend_access':
+                logger.info(f"cancel_extend_access callback erhalten")
+                return await AdminMode._cancel_extend_access(update, context, user_data, markupList)
+            
+            elif callback_data.startswith('extend_days_'):
+                chat_id = int(callback_data.split('_')[2])
+                days = int(callback_data.split('_')[3])
+                logger.info(f"extend_days callback erhalten: chat_id={chat_id}, days={days}")
+                return await AdminMode._extend_access_days(update, context, user_data, markupList, chat_id, days)
+            
+            elif callback_data.startswith('extend_custom_'):
+                chat_id = int(callback_data.split('_')[2])
+                logger.info(f"extend_custom callback erhalten: chat_id={chat_id}")
+                return await AdminMode._extend_access_custom(update, context, user_data, markupList, chat_id)
+            
             else:
                 logger.warning(f"Unbekannter Callback: {callback_data}")
-                await query.edit_message_text(
-                    "❌ Unbekannte Aktion",
-                    reply_markup=user_data['keyboard']
-                )
-        
+                try:
+                    await query.edit_message_text(
+                        "❌ Unbekannte Aktion",
+                        reply_markup=user_data['keyboard']
+                    )
+                except Exception as edit_error:
+                    logger.error(f"Fehler beim Editieren der Nachricht: {edit_error}")
+                    await query.answer("❌ Fehler bei der Aktion", show_alert=True)
+                
         except Exception as e:
             logger.error(f"Fehler in Callback-Handler: {e}")
-            await query.answer("❌ Fehler bei der Aktion", show_alert=True)
-        
-        return context.user_data['status']
-    
-    @staticmethod
-    async def _approve_request(update, context, user_data, markupList, chat_id):
-        """Genehmigt einen User-Request"""
+            logger.error(f"Update-Typ: {type(update)}")
+            logger.error(f"Callback-Data: {callback_data}")
+            try:
+                await query.answer("❌ Fehler bei der Aktion", show_alert=True)
+            except Exception as answer_error:
+                logger.error(f"Fehler beim Answer: {answer_error}")
         query = update.callback_query
         
         if AdminMode.db:
@@ -558,6 +612,59 @@ class AdminMode:
                 '❌ Datenbank nicht verfügbar.',
                 reply_markup=user_data['keyboard']
             )
+        
+        return context.user_data['status']
+    
+    @staticmethod
+    async def _approve_request(update, context, user_data, markupList, chat_id):
+        """Genehmigt einen User-Request"""
+        query = update.callback_query
+        
+        if AdminMode.db:
+            try:
+                # Standard-Zugriff für 30 Tage gewähren
+                allowed_until = AdminMode.db.grant_access(chat_id, 30)
+                
+                # User benachrichtigen
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f'✅ **Zugriff gewährt!**\n\n'
+                               f'📅 Du kannst den Bot jetzt bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr nutzen.\n\n'
+                               f'Viel Spaß mit dem FritzDECT-Bot! 🤖'
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to notify user {chat_id}: {e}")
+                
+                # Callback beantworten und Nachricht bearbeiten
+                await query.answer()
+                await query.edit_message_text(
+                    f'✅ Zugriff für Benutzer {chat_id} bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr gewährt.',
+                    reply_markup=user_data['keyboard']
+                )
+            except Exception as e:
+                logger.error(f"Fehler bei der Genehmigung: {str(e)}")
+                try:
+                    await query.answer()
+                    await query.edit_message_text(
+                        f'❌ Fehler bei der Genehmigung: {str(e)}',
+                        reply_markup=user_data['keyboard']
+                    )
+                except Exception as answer_error:
+                    logger.error(f"Fehler beim Answer: {answer_error}")
+        else:
+            try:
+                await query.answer()
+                await query.edit_message_text(
+                    '❌ Datenbank nicht verfügbar.',
+                    reply_markup=user_data['keyboard']
+                )
+            except Exception as e:
+                logger.error(f"Fehler bei Datenbankzugriff: {e}")
+                try:
+                    await query.answer()
+                except Exception as answer_error:
+                    logger.error(f"Fehler beim Answer: {answer_error}")
         
         return context.user_data['status']
     
@@ -644,25 +751,309 @@ class AdminMode:
         user_data['custom_days_chat_id'] = chat_id
         user_data['waiting_for_custom_days'] = True
         
+        return context.user_data['status']
+    
+    @staticmethod
+    async def _handle_extend_access(update, context, user_data, markupList, chat_id):
+        """Zeigt Optionen zur Zugriffverlängerung für einen bestimmten Benutzer"""
+        query = update.callback_query
+        global db
+        
+        if db is None:
+            await query.answer("❌ Datenbank nicht verfügbar", show_alert=True)
+            return context.user_data['status']
+        
+        try:
+            # Benutzer-Info abrufen
+            user_info = db.fetch_one(f"SELECT firstname, lastname, allowedToDatetime FROM {db.table_name} WHERE chatID = ?", (chat_id,))
+            if not user_info:
+                await query.answer("❌ Benutzer nicht gefunden", show_alert=True)
+                return context.user_data['status']
+            
+            firstname, lastname, allowed_to = user_info
+            name = f"{firstname or 'Unbekannt'} {lastname or ''}".strip()
+            
+            # Aktuellen Status anzeigen
+            status_text = ""
+            if allowed_to:
+                try:
+                    allowed_until = DT.datetime.strptime(allowed_to, '%Y-%m-%d %H:%M:%S.%f')
+                    if DT.datetime.now() < allowed_until:
+                        days_remaining = (allowed_until - DT.datetime.now()).days
+                        status_text = f"Aktiver Zugriff bis {allowed_until.strftime('%d.%m.%Y %H:%M')} (noch {days_remaining} Tage)"
+                    else:
+                        status_text = f"Zugriff abgelaufen am {allowed_until.strftime('%d.%m.%Y %H:%M')}"
+                except:
+                    status_text = "Ungültiges Datumsformat"
+            else:
+                status_text = "Kein Zugriff gewährt"
+            
+            # Inline-Tastatur für Verlängerungsoptionen
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ 7 Tage", callback_data=f'extend_days_{chat_id}_7'),
+                    InlineKeyboardButton("✅ 30 Tage", callback_data=f'extend_days_{chat_id}_30')
+                ],
+                [
+                    InlineKeyboardButton("⚙️ Benutzerdefiniert", callback_data=f'extend_custom_{chat_id}'),
+                    InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_extend_access')
+                ]
+            ]
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                f"🔧 **Zugriff verlängern für:**\n\n"
+                f"👤 {name} (ID: {chat_id})\n"
+                f"📅 Status: {status_text}\n\n"
+                f"Wähle die Verlängerungsdauer:",
+                reply_markup=reply_markup
+            )
+            
+            return context.user_data['status']
+            
+        except Exception as e:
+            logger.error(f"Fehler bei Zugriffverlängerung: {e}")
+            await query.answer("❌ Fehler bei der Aktion", show_alert=True)
+            return context.user_data['status']
+    
+    @staticmethod
+    async def _refresh_user_list(update, context, user_data, markupList):
+        """Aktualisiert die Benutzerliste"""
+        query = update.callback_query
+        
+        # Zuerst Callback beantworten
+        await query.answer()
+        
+        # Benutzerliste direkt anzeigen (ohne grant_access aufzurufen)
+        return await AdminMode._show_user_list_callback(update, context, user_data, markupList)
+    
+    @staticmethod
+    async def _show_user_list_callback(update, context, user_data, markupList):
+        """Zeigt Benutzerliste für Callback-Updates an"""
+        global db
+        if db is None:
+            await query.answer("❌ Datenbank nicht verfügbar.", show_alert=True)
+            return context.user_data['status']
+        
+        try:
+            # Alle Benutzer abrufen, die Zugriff haben oder hatten
+            all_users = db.get_all_users()
+            
+            if not all_users:
+                await update.message.reply_text("📋 **Keine Benutzer gefunden**", reply_markup=user_data['keyboard'])
+                return context.user_data['status']
+            
+            # Inline-Tastatur für Benutzerauswahl erstellen
+            keyboard = []
+            for user in all_users:
+                chat_id, firstname, lastname, is_admin, allowed_to, failed_attempts, blocked_until, *rest = user
+                name = f"{firstname or 'Unbekannt'} {lastname or ''}".strip()
+                
+                # Status-Emoji basierend auf allowedToDatetime
+                if allowed_to:
+                    try:
+                        allowed_until = DT.datetime.strptime(allowed_to, '%Y-%m-%d %H:%M:%S.%f')
+                        if DT.datetime.now() < allowed_until:
+                            status_emoji = "✅"
+                        else:
+                            status_emoji = "⏳"
+                    except:
+                        status_emoji = "⏳"
+                else:
+                    status_emoji = "❌"
+                
+                # Button-Text erstellen
+                button_text = f"{status_emoji} {name} (ID: {chat_id})"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f'extend_access_{chat_id}')])
+            
+            # Zusätzliche Optionen
+            keyboard.extend([
+                [InlineKeyboardButton("🔄 Liste aktualisieren", callback_data='refresh_user_list')],
+                [InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_extend_access')]
+            ])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Neue Nachricht senden (nicht bearbeiten)
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="🔧 **Zugriff verlängern:**\n\n"
+                     "Wähle einen Benutzer aus, dessen Zugriff du verlängern möchtest:\n\n"
+                     "👑 Admin | ✅ Aktiv | ⏳ Wartend/Abgelaufen | ❌ Kein Zugriff",
+                reply_markup=reply_markup
+            )
+            
+            return context.user_data['status']
+            
+        except Exception as e:
+            logger.error(f"Fehler beim Anzeigen der Benutzerliste: {e}")
+            await query.answer("❌ Fehler beim Laden der Benutzerliste", show_alert=True)
+            return context.user_data['status']
+    
+    @staticmethod
+    async def _cancel_extend_access(update, context, user_data, markupList):
+        """Bricht die Zugriffverlängerung ab"""
+        query = update.callback_query
+        logger.info(f"_cancel_extend_access aufgerufen")
+        
+        # Zuerst Callback beantworten
+        await query.answer()
+        
+        # Dann Nachricht bearbeiten (ohne ReplyKeyboardMarkup)
         await query.edit_message_text(
-            '⏳ **Benutzerdefinierte Tage**\n\n'
-            'Bitte gib die Anzahl der Tage ein, für die der Zugriff gewährt werden soll:',
-            reply_markup=user_data['keyboard']
+            "❌ Zugriffverlängerung abgebrochen"
         )
         
         return context.user_data['status']
-
-def get_callback_handlers():
-    """Gibt die Callback-Handler-Konfiguration für AdminMode zurück"""
-    return {
-        'patterns': [
-            r'approve_request_.*',
-            r'reject_request_.*',
-            r'grant_days_.*',
-            r'custom_days_.*'
-        ],
-        'handler': AdminMode.handle_request_callback
-    }
+    
+    @staticmethod
+    async def _extend_access_days(update, context, user_data, markupList, chat_id, days):
+        """Verlängert den Zugriff für einen Benutzer um eine bestimmte Anzahl von Tagen"""
+        query = update.callback_query
+        logger.info(f"_extend_access_days aufgerufen: chat_id={chat_id}, days={days}")
+        global db
+        
+        if db is None:
+            await query.answer("❌ Datenbank nicht verfügbar", show_alert=True)
+            return context.user_data['status']
+        
+        try:
+            # Zugriff verlängern
+            allowed_until = db.grant_access(chat_id, days)
+            
+            # Benutzer-Info für Benachrichtigung
+            user_info = db.fetch_one(f"SELECT firstname, lastname FROM {db.table_name} WHERE chatID = ?", (chat_id,))
+            if user_info:
+                firstname, lastname = user_info
+                name = f"{firstname or 'Unbekannt'} {lastname or ''}".strip()
+            else:
+                name = f"Benutzer {chat_id}"
+            
+            # Benachrichtigung an den Benutzer senden
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f'✅ **Zugriff verlängert!**\n\n'
+                         f'📅 Dein Zugriff wurde bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr verlängert.\n\n'
+                         f'Viel Spaß mit dem FritzDECT-Bot! 🤖'
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify user about access extension: {e}")
+            
+            # Bestätigung an Admin
+            await query.edit_message_text(
+                f'✅ **Zugriff verlängert!**\n\n'
+                f'👤 {name} (ID: {chat_id})\n'
+                f'📅 Bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr\n'
+                f'⏰ Um {days} Tage verlängert',
+                reply_markup=user_data['keyboard']
+            )
+            
+            return context.user_data['status']
+            
+        except Exception as e:
+            logger.error(f"Fehler bei Zugriffverlängerung: {e}")
+            await query.answer("❌ Fehler bei der Verlängerung", show_alert=True)
+            return context.user_data['status']
+    
+    @staticmethod
+    async def _extend_access_custom(update, context, user_data, markupList, chat_id):
+        """Fordert Admin auf, benutzerdefinierte Tage einzugeben"""
+        query = update.callback_query
+        logger.info(f"_extend_access_custom aufgerufen: chat_id={chat_id}")
+        
+        # User-Info für spätere Verwendung speichern
+        user_data['extend_access_chat_id'] = chat_id
+        user_data['waiting_for_extend_days'] = True
+        
+        # Zuerst Callback beantworten
+        await query.answer()
+        
+        # Dann Nachricht bearbeiten (ohne Tastatur, um Inline-Konflikt zu vermeiden)
+        await query.edit_message_text(
+            '⏳ **Benutzerdefinierte Verlängerung**\n\n'
+            'Bitte gib die Anzahl der Tage ein, um die der Zugriff verlängert werden soll.\n\n'
+            'Beispiele: 7, 30, 365\n'
+            'Zum Abbrechen: abbruch oder abbrechen'
+        )
+        
+        return context.user_data['status']
+    
+    @staticmethod
+    async def handle_extend_days(update, context, user_data, markupList):
+        """Verarbeitet benutzerdefinierte Tage für Zugriffverlängerung"""
+        logger.info(f"handle_extend_days aufgerufen mit Nachricht: {update.message.text}")
+        
+        # Sicherstellen, dass dies eine normale Nachricht ist (kein Callback)
+        if hasattr(update, 'callback_query'):
+            logger.error("handle_extend_days mit Callback-Query aufgerufen - das sollte nicht passieren!")
+            return context.user_data['status']
+        
+        global db
+        if db is None:
+            await update.message.reply_text("❌ Datenbank nicht verfügbar.", reply_markup=user_data['keyboard'])
+            return context.user_data['status']
+        
+        try:
+            # Tage aus der Nachricht extrahieren
+            message_text = update.message.text.strip()
+            
+            try:
+                days = int(message_text)
+                if days <= 0:
+                    await update.message.reply_text("❌ Bitte gib eine positive Zahl größer als 0 ein.", reply_markup=user_data['keyboard'])
+                    return context.user_data['status']
+            except ValueError:
+                await update.message.reply_text("❌ Bitte gib eine gültige positive Zahl ein (z.B. 7, 30, 365).", reply_markup=user_data['keyboard'])
+                return context.user_data['status']
+            
+            # Chat-ID aus den user_data holen
+            chat_id = user_data.get('extend_access_chat_id')
+            if not chat_id:
+                await update.message.reply_text("❌ Fehler: Keine Benutzer-ID gefunden.", reply_markup=user_data['keyboard'])
+                return context.user_data['status']
+            
+            # Zugriff verlängern
+            allowed_until = db.grant_access(chat_id, days)
+            
+            # Benutzer-Info für Benachrichtigung
+            user_info = db.fetch_one(f"SELECT firstname, lastname FROM {db.table_name} WHERE chatID = ?", (chat_id,))
+            if user_info:
+                firstname, lastname = user_info
+                name = f"{firstname or 'Unbekannt'} {lastname or ''}".strip()
+            else:
+                name = f"Benutzer {chat_id}"
+            
+            # Benachrichtigung an den Benutzer senden
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f'✅ **Zugriff verlängert!**\n\n'
+                         f'📅 Dein Zugriff wurde bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr verlängert.\n\n'
+                         f'Viel Spaß mit dem FritzDECT-Bot! 🤖'
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify user about access extension: {e}")
+            
+            # Bestätigung an Admin
+            await update.message.reply_text(
+                f'✅ **Zugriff verlängert!**\n\n'
+                f'👤 {name} (ID: {chat_id})\n'
+                f'📅 Bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr\n'
+                f'⏰ Um {days} Tage verlängert',
+                reply_markup=user_data['keyboard']
+            )
+            
+            # Status zurücksetzen
+            user_data['extend_access_chat_id'] = None
+            user_data['waiting_for_extend_days'] = None
+            
+            return context.user_data['status']
+            
+        except Exception as e:
+            await update.message.reply_text(f'❌ Fehler: {str(e)}', reply_markup=user_data['keyboard'])
+            return context.user_data['status']
 
 # Datenbank-Instanz setzen
 def init_database(database_instance):

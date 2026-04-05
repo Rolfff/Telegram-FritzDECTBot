@@ -36,6 +36,25 @@ class Config:
     def get_admin_chat_id(self):
         return self.get('telegram.admin_chat_id')
     
+    def get_admin_chat_ids(self):
+        """Gibt eine Liste von Admin-Chat-IDs zurück"""
+        admin_id = self.get('telegram.admin_chat_id')
+        if isinstance(admin_id, list):
+            return admin_id
+        elif admin_id:
+            return [admin_id]
+        return []
+    
+    def get_expire_notification_config(self):
+        """Gibt die Konfiguration für Ablauf-Benachrichtigungen zurück"""
+        return self.get('expire_notifications', {
+            'enabled': True,
+            'warning_days': [7, 3, 1],  # Tage vor Ablauf warnen
+            'weekly_summary': True,
+            'summary_day': 1,  # Wochentag (1=Montag)
+            'summary_time': '09:00'  # Uhrzeit
+        })
+    
     def get_telegram_password(self):
         return self.get('telegram.password')
     
@@ -60,14 +79,33 @@ class Config:
 # Konstanten für Bot-Zustände
 MAIN, LOGIN, ADMIN, STATISTICS, AUTOMATION, SETTINGS = range(6)
 
-# Modi werden in fritzdect_bot.py gesetzt
+# Modi werden in fritzdect_bot.py gesetzt (um zirkuläre Imports zu vermeiden)
 modeList = [None, None, None, None, None, None]
+
+# Import hier am Ende der Datei, um zirkuläre Imports zu vermeiden
+def init_mode_list():
+    """Initialisiert die modeList mit den Klassen"""
+    global modeList
+    try:
+        import lib.loginMode as LoginMode
+        import lib.adminMode as AdminMode  
+        import lib.statistikMode_optimized as StatistikModeOptimized
+        import lib.automationMode_optimized as AutomationModeOptimized
+        import lib.settingsMode as SettingsMode
+        
+        modeList = [None, LoginMode, AdminMode, StatistikModeOptimized, AutomationModeOptimized, SettingsMode]
+    except ImportError:
+        # Fallback für Tests ohne vollständige Installation
+        pass
 
 # Tastatur-Layouts
 reply_keyboard_main = [['Temperatur setzen', 'Temp.-Verlauf', 'Heizung'],['Automation','Einstellungen','Logout']]
 
 def genMarkupList():
     """Generiert die MarkupList für alle Modi"""
+    # Stelle sicher, dass die modeList initialisiert ist
+    init_mode_list()
+    
     try:
         from telegram import ReplyKeyboardMarkup
     except ImportError:
