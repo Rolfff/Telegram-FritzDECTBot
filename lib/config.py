@@ -93,9 +93,16 @@ def init_mode_list():
         import lib.automationMode_optimized as AutomationModeOptimized
         import lib.settingsMode as SettingsMode
         
-        modeList = [None, LoginMode, AdminMode, StatistikModeOptimized, AutomationModeOptimized, SettingsMode]
-    except ImportError:
+        # Globale modeList aktualisieren (nicht lokale Variable!)
+        modeList[0] = None  # MAIN
+        modeList[1] = LoginMode
+        modeList[2] = AdminMode
+        modeList[3] = StatistikModeOptimized
+        modeList[4] = AutomationModeOptimized
+        modeList[5] = SettingsMode
+    except ImportError as e:
         # Fallback für Tests ohne vollständige Installation
+        print(f"ImportError in init_mode_list: {e}")
         pass
 
 # Tastatur-Layouts

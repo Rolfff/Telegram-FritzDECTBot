@@ -55,14 +55,18 @@ def get_callback_handlers():
 
 # Funktionen hier registrieren für Settings-Mode
 # Funktionen Map{ Funk-Name: Tastertur beschriftung}
-tastertur = {'language': 'Sprache ändern',
-         'notifications': 'Benachrichtigungen',
-         'back': 'Zurück'}
+tastertur = {
+    'language': 'Sprache ändern',
+    'notifications': 'Benachrichtigungen',
+    'back': 'Zurück'
+}
 
 # Funktionen Map{Funk-Name, Beschreiung in Help}
-textbefehl = {'language': 'Ändert die Sprache des Bots',
-         'notifications': 'Konfiguriert Benachrichtigungseinstellungen',
-         'back': 'Wechselt zurück ins Main-Menu'}
+textbefehl = {
+    'language': 'Ändert die Sprache des Bots',
+    'notifications': 'Konfiguriert Benachrichtigungseinstellungen',
+    'back': 'Wechselt zurück ins Main-Menu'
+}
 
 
 async def default(update, context, user_data, markupList):
@@ -73,9 +77,7 @@ async def default(update, context, user_data, markupList):
     await update.message.reply_text("-->SETTINGSMODE<--\n\n⚙️ Verfügbare Funktionen:\n"
                                   "• Sprache ändern (🇩🇪🇬🇧🇷🇺🇫🇷🇪🇸)\n"
                                   "• Benachrichtigungen konfigurieren\n"
-                                  "• Persönliche Einstellungen anpassen\n\n"
-                                  "💡 Nutze /help für alle Befehle",
-                                  reply_markup=context.user_data['keyboard'])
+                                  "• Zurück zum Hauptmenü", reply_markup=markupList[SETTINGS])
     return context.user_data['status']
 
 

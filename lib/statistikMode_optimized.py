@@ -1124,19 +1124,31 @@ async def temp_history(update, context, user_data, markupList):
         
         # Sicherstellen dass Login gültig ist
         if not stats_manager._ensure_login():
-            await loading_message.edit_text("❌ Login bei FritzBox fehlgeschlagen.")
+            try:
+                await loading_message.edit_text("❌ Login bei FritzBox fehlgeschlagen.")
+            except Exception as e:
+                logger.warning(f"Konnte Lade-Nachricht nicht bearbeiten: {e}")
+                await update.message.reply_text("❌ Login bei FritzBox fehlgeschlagen.")
             return user_data.get('status', STATISTICS)
         
         # Geräte abrufen
         devices = stats_manager.fritz_api.get_devices(use_cache=False)
         if not devices:
-            await loading_message.edit_text("❌ Keine Geräte gefunden.")
+            try:
+                await loading_message.edit_text("❌ Keine Geräte gefunden.")
+            except Exception as e:
+                logger.warning(f"Konnte Lade-Nachricht nicht bearbeiten: {e}")
+                await update.message.reply_text("❌ Keine Geräte gefunden.")
             return user_data.get('status', STATISTICS)
         
         # Heizkörper filtern
         heaters = [device for device in devices if device.thermostat and device.thermostat.get('tsoll') is not None]
         if not heaters:
-            await loading_message.edit_text("❌ Keine Heizkörper gefunden.")
+            try:
+                await loading_message.edit_text("❌ Keine Heizkörper gefunden.")
+            except Exception as e:
+                logger.warning(f"Konnte Lade-Nachricht nicht bearbeiten: {e}")
+                await update.message.reply_text("❌ Keine Heizkörper gefunden.")
             return user_data.get('status', STATISTICS)
         
         # Temperaturhistorien für alle Heizkörper sammeln
@@ -1301,6 +1313,10 @@ class StatistikModeOptimized:
         logger.debug("StatistikModeOptimized.handle_temp_callback() aufgerufen - delegiere zur globalen Funktion")
         return await handle_temp_callback(update, context, user_data, markupList)
 
+# Default-Funktion für Modus-Wechsel (wird von selectModeFunc aufgerufen)
+async def default(update, context, user_data, markupList):
+    """Default-Funktion - zeigt Status an"""
+    return await status(update, context, user_data, markupList)
 async def handle_temp_callback(update, context, user_data, markupList):
     """Handler für Temperatur-Callbacks mit optimierter API"""
     logger.debug("handle_temp_callback aufgerufen")
@@ -1314,7 +1330,11 @@ async def handle_temp_callback(update, context, user_data, markupList):
         
         if callback_data == 'cancel_temp_set':
             logger.debug("Processing cancel_temp_set")
-            await query.edit_message_text("Temperatursetzung abgebrochen.")
+            try:
+                await query.edit_message_text("Temperatursetzung abgebrochen.")
+            except Exception as e:
+                logger.warning(f"Konnte Nachricht nicht bearbeiten: {e}")
+                await query.message.reply_text("Temperatursetzung abgebrochen.")
             user_data['temp_set_mode'] = False
             return
         
@@ -1334,7 +1354,11 @@ async def handle_temp_callback(update, context, user_data, markupList):
             
             if not selected_heater:
                 logger.warning(f"Heater with AIN {ain} not found!")
-                await query.edit_message_text("Fehler: Heizkörper nicht gefunden.")
+                try:
+                    await query.edit_message_text("Fehler: Heizkörper nicht gefunden.")
+                except Exception as e:
+                    logger.warning(f"Konnte Nachricht nicht bearbeiten: {e}")
+                    await query.message.reply_text("Fehler: Heizkörper nicht gefunden.")
                 return
             
             name = selected_heater.name
@@ -1407,9 +1431,15 @@ async def handle_temp_callback(update, context, user_data, markupList):
             message_text += f"\nWähle die neue Zieltemperatur:"
             logger.debug(f"Sending message: {message_text}")
             
-            await query.edit_message_text(message_text,
-                                        parse_mode='Markdown',
-                                        reply_markup=reply_markup)
+            try:
+                await query.edit_message_text(message_text,
+                                            parse_mode='Markdown',
+                                            reply_markup=reply_markup)
+            except Exception as e:
+                logger.warning(f"Konnte Nachricht nicht bearbeiten: {e}")
+                await query.message.reply_text(message_text,
+                                             parse_mode='Markdown',
+                                             reply_markup=reply_markup)
             
             return
         
@@ -1483,15 +1513,24 @@ async def handle_temp_callback(update, context, user_data, markupList):
         elif callback_data.startswith('cancel_temp_'):
             # Temperatur-Eingabe abbrechen
             logger.debug("Processing cancel_temp_ callback")
-            await query.edit_message_text("❌ Temperatur-Einstellung abgebrochen")
+            try:
+                await query.edit_message_text("❌ Temperatur-Einstellung abgebrochen")
+            except Exception as e:
+                logger.warning(f"Konnte Nachricht nicht bearbeiten: {e}")
+                await query.message.reply_text("❌ Temperatur-Einstellung abgebrochen")
             user_data['awaiting_temp_input'] = False
             if 'pending_temp_ain' in user_data:
                 del user_data['pending_temp_ain']
+            return
         
         # Fenster-Offen-Modus Callbacks
         elif callback_data == 'cancel_window_mode':
             logger.debug("Processing cancel_window_mode callback")
-            await query.edit_message_text("❌ Fenster-Modus abgebrochen")
+            try:
+                await query.edit_message_text("❌ Fenster-Modus abgebrochen")
+            except Exception as e:
+                logger.warning(f"Konnte Nachricht nicht bearbeiten: {e}")
+                await query.message.reply_text("❌ Fenster-Modus abgebrochen")
             return
         
         elif callback_data == 'window_disable_all':
@@ -1505,9 +1544,15 @@ async def handle_temp_callback(update, context, user_data, markupList):
                 if stats_manager.disable_window_open_mode(heater.ain):
                     success_count += 1
             
-            await query.edit_message_text(
-                f"✅ Fenster-Modus bei {success_count}/{len(heaters)} Heizkörpern deaktiviert"
-            )
+            try:
+                await query.edit_message_text(
+                    f"✅ Fenster-Modus bei {success_count}/{len(heaters)} Heizkörpern deaktiviert"
+                )
+            except Exception as e:
+                logger.warning(f"Konnte Nachricht nicht bearbeiten: {e}")
+                await query.message.reply_text(
+                    f"✅ Fenster-Modus bei {success_count}/{len(heaters)} Heizkörpern deaktiviert"
+                )
         
         elif callback_data == 'window_all_heaters':
             logger.debug("Processing window_all_heaters callback")
@@ -1534,11 +1579,19 @@ async def handle_temp_callback(update, context, user_data, markupList):
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await query.edit_message_text(
-                "🪟 **Fenster-Modus - Heizkörper auswählen:**\n\n"
-                "Wähle den Heizkörper für den Fenster-Offen-Modus:",
-                reply_markup=reply_markup, parse_mode='Markdown'
-            )
+            try:
+                await query.edit_message_text(
+                    "🪟 **Fenster-Modus - Heizkörper auswählen:**\n\n"
+                    "Wähle den Heizkörper für den Fenster-Offen-Modus:",
+                    reply_markup=reply_markup, parse_mode='Markdown'
+                )
+            except Exception as e:
+                logger.warning(f"Konnte Nachricht nicht bearbeiten: {e}")
+                await query.message.reply_text(
+                    "🪟 **Fenster-Modus - Heizkörper auswählen:**\n\n"
+                    "Wähle den Heizkörper für den Fenster-Offen-Modus:",
+                    reply_markup=reply_markup, parse_mode='Markdown'
+                )
         
         elif callback_data.startswith('window_heater_'):
             logger.debug(f"Processing window_heater_ callback: {callback_data}")
@@ -1736,7 +1789,11 @@ async def handle_temp_callback(update, context, user_data, markupList):
     except Exception as e:
         logger.error(f"Fehler in handle_temp_callback: {e}")
         logger.debug(f"Exception in handle_temp_callback: {e}")
-        await query.edit_message_text("❌ Fehler bei der Verarbeitung")
+        try:
+            await query.edit_message_text("❌ Fehler bei der Verarbeitung")
+        except Exception as edit_error:
+            logger.warning(f"Konnte Nachricht nicht bearbeiten: {edit_error}")
+            await query.message.reply_text("❌ Fehler bei der Verarbeitung")
 
 async def window_open_mode(update, context, user_data, markupList):
     """HKR Fenster-Offen Modus - Hauptfunktion"""
@@ -2175,7 +2232,3 @@ async def back(update, context, user_data, markupList):
     except Exception as e:
         logger.error(f"Fehler bei back: {e}")
         return context.user_data.get('status', MAIN)
-
-async def default(update, context, user_data, markupList):
-    """Default-Funktion - zeigt Status an"""
-    return await status(update, context, user_data, markupList)

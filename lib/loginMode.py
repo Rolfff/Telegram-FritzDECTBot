@@ -108,7 +108,7 @@ async def login(update, context, user_data, markupList):
         # Erfolgreicher Login - fehlgeschlagene Versuche zurücksetzen
         db.reset_failed_attempts(chat_id)
         
-        if str(chat_id) == config.get_admin_chat_id():
+        if str(chat_id) in [str(id) for id in config.get_admin_chat_ids()]:
             # Sprache des Users ermitteln
             user_language = update.effective_user.language_code if hasattr(update.effective_user, 'language_code') else 'en'
             db.add_user(chat_id, update.effective_user.first_name, is_admin=1, language_code=user_language)
@@ -128,9 +128,16 @@ async def login(update, context, user_data, markupList):
                 reply_markup= markupList[LOGIN]
             )
             try:
-                await context.bot.send_message(config.get_admin_chat_id(),
-                    text=f'🔐 Zugriffsanfrage: {user_data["firstname"]} {user_data["lastname"]} (ID: {chat_id}) möchte den Bot nutzen.\n\n'
-                    f'Antworte mit /admin um den Zugriff zu gewähren.')
+                admin_ids = config.get_admin_chat_ids()
+                for admin_id in admin_ids:
+                    try:
+                        await context.bot.send_message(
+                            admin_id,
+                            text=f'🔐 Zugriffsanfrage: {user_data["firstname"]} {user_data["lastname"]} (ID: {chat_id}) möchte den Bot nutzen.\n\n'
+                            f'Antworte mit /admin um den Zugriff zu gewähren.'
+                        )
+                    except Exception as e:
+                        print(f"Failed to notify admin {admin_id}: {e}")
                 await context.bot.send_message(user_data['chatId'],
                     text='✅ Anfrage an Admin gesendet. Du wirst benachrichtigt, sobald der Zugriff freigegeben wurde.')
             except Exception as e:

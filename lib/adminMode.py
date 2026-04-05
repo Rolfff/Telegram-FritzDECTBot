@@ -1059,3 +1059,32 @@ class AdminMode:
 def init_database(database_instance):
     """Initialisiert die Datenbank-Instanz"""
     AdminMode.set_database(database_instance)
+
+# Globale Funktionen für Kompatibilität mit selectModeFunc
+async def default(update, context, user_data, markupList):
+    """Default-Funktion - delegiert zur AdminMode.default"""
+    return await AdminMode.default(update, context, user_data, markupList)
+
+async def nextRequest(update, context, user_data, markupList):
+    """Nächsten Request anzeigen - delegiert zur AdminMode.nextRequest"""
+    return await AdminMode.nextRequest(update, context, user_data, markupList)
+
+async def displayUsers(update, context, user_data, markupList):
+    """Alle Benutzer anzeigen - delegiert zur AdminMode.displayUsers"""
+    return await AdminMode.displayUsers(update, context, user_data, markupList)
+
+async def deleteUsers(update, context, user_data, markupList):
+    """Benutzer löschen - delegiert zur AdminMode.deleteUsers"""
+    return await AdminMode.deleteUsers(update, context, user_data, markupList)
+
+async def show_config(update, context, user_data, markupList):
+    """Konfiguration anzeigen - delegiert zur AdminMode.show_config"""
+    return await AdminMode.show_config(update, context, user_data, markupList)
+
+async def grant_access(update, context, user_data, markupList):
+    """Zugriff verlängern - delegiert zur AdminMode.grant_access"""
+    return await AdminMode.grant_access(update, context, user_data, markupList)
+
+async def back(update, context, user_data, markupList):
+    """Zurück - delegiert zur AdminMode.back"""
+    return await AdminMode.back(update, context, user_data, markupList)

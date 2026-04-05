@@ -26,7 +26,6 @@ textbefehl = {
     'listTemplates': 'Zeigt alle verfügbaren Vorlagen an',
     'executeScenario': 'Führt ein ausgewähltes Szenario aus',
     'applyTemplate': 'Wendet eine ausgewählte Vorlage an',
-    'help': 'Zeigt diesen Text an',
     'quit': 'Verlasse AutomationMode'
 }
 
@@ -46,20 +45,20 @@ class OptimizedAutomationManager:
                     reply_markup=user_data['keyboard'])
                 return user_data['status']
             
-            scenarios_text = "📋 **Verfügbare Szenarien:**\n\n"
+            scenarios_text = "📋 Verfügbare Szenarien:\n\n"
             scenarios_found = []
             
             # Vorlagen als Szenarien interpretieren (optimiert mit Cache)
             templates = self.fritz_api.get_templates(use_cache=True)
             if templates:
-                scenarios_text += "🏠 **Vorlagen (als Szenarien verwendbar):**\n"
+                scenarios_text += "🏠 Vorlagen (als Szenarien verwendbar):\n"
                 for template in templates:
                     # Nur Szenarien anzeigen (mit sub_templates)
                     if template.sub_templates:
                         scenarios_found.append(f"• {template.name} (ID: {template.id})")
             
             # Manuelles Urlaubs-Szenario
-            scenarios_text += "\n🏖️ **Urlaubs-Szenarien:**\n"
+            scenarios_text += "\n🏖️ Urlaubs-Szenarien:\n"
             scenarios_text += "• Urlaub aktivieren\n"
             scenarios_text += "• Urlaub deaktivieren\n"
             scenarios_found.extend(["Urlaub aktivieren", "Urlaub deaktivieren"])
@@ -72,13 +71,12 @@ class OptimizedAutomationManager:
                 scenarios_text += "💡 Tipp: Erstelle zuerst Urlaubs-Szenarien mit /createVacationScenario"
             
             await update.message.reply_text(scenarios_text,
-                reply_markup=user_data['keyboard'], parse_mode='Markdown')
+                reply_markup=user_data['keyboard'])
                 
         except Exception as e:
             logger.error(f"Fehler beim Abrufen der Szenarien: {e}")
-            await update.message.reply_text(f"❌ Fehler beim Abrufen der Szenarien: {str(e)}",
+            await update.message.reply_text(f"❌ Fehler: {str(e)}",
                 reply_markup=user_data['keyboard'])
-        
         return user_data['status']
     
     async def list_templates(self, update, context, user_data, markupList):
@@ -90,7 +88,7 @@ class OptimizedAutomationManager:
                     reply_markup=user_data['keyboard'])
                 return user_data['status']
             
-            templates_text = "📋 **Verfügbare Vorlagen:**\n\n"
+            templates_text = "📋 Verfügbare Vorlagen:\n\n"
             
             # Vorlagen mit Cache abrufen
             templates = self.fritz_api.get_templates(use_cache=True)
@@ -101,7 +99,7 @@ class OptimizedAutomationManager:
                 
                 if user_templates:
                     for template in user_templates:
-                        templates_text += f"🏠 **{template.name}**\n"
+                        templates_text += f"🏠 {template.name}\n"
                         templates_text += f"   ID: {template.id}\n"
                         templates_text += f"   Identifier: {template.identifier}\n"
                         templates_text += f"   Geräte: {len(template.devices)}\n"
@@ -116,8 +114,6 @@ class OptimizedAutomationManager:
                             
                             if masks:
                                 templates_text += f"   Funktionen: {', '.join(masks)}\n"
-                        
-                        templates_text += "\n"
                     
                     templates_text += f"💡 Insgesamt {len(user_templates)} Vorlage(n) gefunden\n"
                     templates_text += "💡 Nutze /applyTemplate um eine Vorlage anzuwenden"
@@ -125,18 +121,14 @@ class OptimizedAutomationManager:
                     templates_text += "Keine benutzerdefinierten Vorlagen gefunden.\n\n"
                     templates_text += "💡 Automatisch erstellte Vorlagen werden ausgeblendet.\n"
                     templates_text += "💡 Erstelle Vorlagen in der FritzBox-Weboberfläche"
-            else:
-                templates_text += "Konnte keine Vorlagen abrufen.\n\n"
-                templates_text += "💡 Überprüfe die Verbindung zur FritzBox"
             
             await update.message.reply_text(templates_text,
-                reply_markup=user_data['keyboard'], parse_mode='Markdown')
+                reply_markup=user_data['keyboard'])
                 
         except Exception as e:
             logger.error(f"Fehler beim Abrufen der Vorlagen: {e}")
-            await update.message.reply_text(f"❌ Fehler beim Abrufen der Vorlagen: {str(e)}",
+            await update.message.reply_text(f"❌ Fehler: {str(e)}",
                 reply_markup=user_data['keyboard'])
-        
         return user_data['status']
     
     async def execute_scenario(self, update, context, user_data, markupList):
@@ -165,7 +157,7 @@ class OptimizedAutomationManager:
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await update.message.reply_text(
-                    "🎯 **Szenario auswählen:**\n\n"
+                    "🎯 Szenario auswählen:\n\n"
                     "Wähle das Szenario, das du ausführen möchtest:",
                     reply_markup=reply_markup, parse_mode='Markdown')
                 return user_data['status']
@@ -186,7 +178,7 @@ class OptimizedAutomationManager:
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await update.message.reply_text(
-                    "🎯 **Szenario auswählen:**\n\n"
+                    "🎯 Szenario auswählen:\n\n"
                     "Wähle das Szenario, das du ausführen möchtest:",
                     reply_markup=reply_markup, parse_mode='Markdown')
                 return user_data['status']
@@ -198,8 +190,7 @@ class OptimizedAutomationManager:
                     await update.message.reply_text("✅ Szenario 'Urlaub aktivieren' erfolgreich ausgeführt",
                         reply_markup=user_data['keyboard'])
                 else:
-                    error_msg = result.get('error', 'Unbekannter Fehler')
-                    await update.message.reply_text(f"❌ Fehler beim Ausführen des Szenarios: {error_msg}",
+                    await update.message.reply_text(f"❌ Fehler beim Ausführen des Szenarios: {result['error']}",
                         reply_markup=user_data['keyboard'])
             elif "Urlaub deaktivieren" in scenario_text:
                 result = self.stats_manager.apply_vacation_template(active=False)
@@ -207,30 +198,16 @@ class OptimizedAutomationManager:
                     await update.message.reply_text("✅ Szenario 'Urlaub deaktivieren' erfolgreich ausgeführt",
                         reply_markup=user_data['keyboard'])
                 else:
-                    error_msg = result.get('error', 'Unbekannter Fehler')
-                    await update.message.reply_text(f"❌ Fehler beim Ausführen des Szenarios: {error_msg}",
+                    await update.message.reply_text(f"❌ Fehler beim Ausführen des Szenarios: {result['error']}",
                         reply_markup=user_data['keyboard'])
             else:
-                # Versuche Vorlage als Szenario auszuführen
-                template = self.fritz_api.get_template_by_name(scenario_text, use_cache=True)
-                if template:
-                    success = self.fritz_api.apply_template(template.identifier)
-                    if success:
-                        await update.message.reply_text(f"✅ Szenario '{scenario_text}' erfolgreich ausgeführt",
-                            reply_markup=user_data['keyboard'])
-                    else:
-                        await update.message.reply_text(f"❌ Fehler beim Ausführen des Szenarios",
-                            reply_markup=user_data['keyboard'])
-                else:
-                    await update.message.reply_text(f"❌ Unbekanntes Szenario: {scenario_text}\n\n"
-                        "💡 Nutze /listScenarios um verfügbare Szenarien zu sehen",
-                        reply_markup=user_data['keyboard'])
+                await update.message.reply_text("❌ Unbekanntes Szenario",
+                    reply_markup=user_data['keyboard'])
                 
         except Exception as e:
-            logger.error(f"Fehler bei der Szenario-Ausführung: {e}")
-            await update.message.reply_text(f"❌ Fehler bei der Szenario-Ausführung: {str(e)}",
+            logger.error(f"Fehler bei Szenario-Ausführung: {e}")
+            await update.message.reply_text(f"❌ Fehler: {str(e)}",
                 reply_markup=user_data['keyboard'])
-        
         return user_data['status']
     
     async def apply_template(self, update, context, user_data, markupList):
@@ -242,43 +219,26 @@ class OptimizedAutomationManager:
                     reply_markup=user_data['keyboard'])
                 return user_data['status']
             
-            # Text der Vorlage extrahieren
+            # Text des Befehls extrahieren
             text = update.message.text
             
             # Prüfen ob es ein Button-Klick ist
             if text == "Vorlage anwenden":
-                # Vorlagen mit Cache abrufen und Inline-Keyboard erstellen
-                templates = self.fritz_api.get_templates(use_cache=True)
-                user_templates = [t for t in templates if not t.autocreate]
-                
-                if user_templates:
-                    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                    
-                    keyboard = []
-                    for template in user_templates:
-                        keyboard.append([InlineKeyboardButton(f"🏠 {template.name}", 
-                                                       callback_data=f'apply_template_{template["id"]}_{template["name"]}')])
-                    
-                    keyboard.append([InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_template')])
-                    
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    await update.message.reply_text(
-                        "🎯 **Vorlage auswählen:**\n\n"
-                        "Wähle die Vorlage, die du anwenden möchtest:",
-                        reply_markup=reply_markup, parse_mode='Markdown')
-                    return user_data['status']
-                
-                # Keine Vorlagen gefunden
+                # Inline-Keyboard für Vorlagen-Auswahl erstellen
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
                 
-                keyboard = [[InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_template')]]
+                keyboard = []
+                for template in user_templates:
+                    keyboard.append([InlineKeyboardButton(f"🏠 {template.name}", 
+                                                       callback_data=f'apply_template_{template["id"]}_{template["name"]}')])
+                    
+                keyboard.append([InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_template')])
+                
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await update.message.reply_text(
-                    "🎯 **Keine Vorlagen gefunden:**\n\n"
-                    "Es sind keine benutzerdefinierten Vorlagen in der FritzBox konfiguriert.\n"
-                    "Bitte erstelle zuerst Vorlagen in der FritzBox-Weboberfläche.",
+                    "🎯 Vorlage auswählen:\n\n"
+                    "Wähle die Vorlage, die du anwenden möchtest:",
                     reply_markup=reply_markup, parse_mode='Markdown')
                 return user_data['status']
             
@@ -286,39 +246,8 @@ class OptimizedAutomationManager:
             template_text = text.replace('/applyTemplate ', '').strip()
             
             if not template_text or template_text == "Vorlage anwenden":
-                # Vorlagen mit Cache abrufen und Inline-Keyboard erstellen
-                templates = self.fritz_api.get_templates(use_cache=True)
-                user_templates = [t for t in templates if not t.autocreate]
-                
-                if user_templates:
-                    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                    
-                    keyboard = []
-                    for template in user_templates:
-                        keyboard.append([InlineKeyboardButton(f"🏠 {template.name}", 
-                                                       callback_data=f'apply_template_{template["id"]}_{template["name"]}')])
-                    
-                    keyboard.append([InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_template')])
-                    
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    await update.message.reply_text(
-                        "🎯 **Vorlage auswählen:**\n\n"
-                        "Wähle die Vorlage, die du anwenden möchtest:",
-                        reply_markup=reply_markup, parse_mode='Markdown')
-                    return user_data['status']
-                
-                # Keine Vorlagen gefunden
-                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                
-                keyboard = [[InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_template')]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await update.message.reply_text(
-                    "🎯 **Keine Vorlagen gefunden:**\n\n"
-                    "Es sind keine benutzerdefinierten Vorlagen in der FritzBox konfiguriert.\n"
-                    "Bitte erstelle zuerst Vorlagen in der FritzBox-Weboberfläche.",
-                    reply_markup=reply_markup, parse_mode='Markdown')
+                await update.message.reply_text("❌ Keine Vorlage angegeben",
+                    reply_markup=user_data['keyboard'])
                 return user_data['status']
             
             # Vorlage anwenden mit optimierter API
@@ -330,172 +259,132 @@ class OptimizedAutomationManager:
                     await update.message.reply_text(f"✅ Vorlage '{template_text}' erfolgreich angewendet",
                         reply_markup=user_data['keyboard'])
                 else:
-                    await update.message.reply_text(f"❌ Fehler beim Anwenden der Vorlage '{template_text}'\n\n"
-                        "💡 Überprüfe die Vorlagenkonfiguration in der FritzBox",
+                    await update.message.reply_text(f"❌ Fehler beim Anwenden der Vorlage '{template_text}'",
                         reply_markup=user_data['keyboard'])
             else:
-                await update.message.reply_text(f"❌ Vorlage '{template_text}' nicht gefunden\n\n"
-                    "💡 Nutze /listTemplates um verfügbare Vorlagen zu sehen",
+                await update.message.reply_text(f"❌ Vorlage '{template_text}' nicht gefunden",
                     reply_markup=user_data['keyboard'])
                 
         except Exception as e:
             logger.error(f"Fehler beim Anwenden der Vorlage: {e}")
-            await update.message.reply_text(f"❌ Fehler beim Anwenden der Vorlage: {str(e)}",
+            await update.message.reply_text(f"❌ Fehler: {str(e)}",
                 reply_markup=user_data['keyboard'])
-        
         return user_data['status']
     
-    async def handle_scenario_callback(self, update, context):
+    async def quit(self, update, context, user_data, markupList):
+        """Verlässt den Automation-Modus"""
+        user_data['keyboard'] = markupList[MAIN]
+        user_data['status'] = MAIN
+        await update.message.reply_text("🔙 Zurück zum Hauptmenü",
+            reply_markup=markupList[MAIN])
+        return MAIN
+    
+    async def default(self, update, context, user_data, markupList):
+        """Default-Funktion für Automation-Modus"""
+        help_text = "🤖 Automation-Modus\n\n"
+        help_text += "Verfügbare Befehle:\n"
+        for key, value in textbefehl.items():
+            help_text += f"• /{key} - {value}\n"
+        help_text += "\n💡 Nutze /help für detaillierte Hilfe"
+        
+        await update.message.reply_text(help_text, reply_markup=user_data.get('keyboard'))
+        return user_data.get('status', AUTOMATION)
+    
+    async def default(self, update, context, user_data, markupList):
+        """Default-Funktion für Automation-Modus"""
+        help_text = "🤖 Automation-Modus\n\n"
+        help_text += "Verfügbare Befehle:\n"
+        for key, value in textbefehl.items():
+            help_text += f"• /{key} - {value}\n"
+        help_text += "\n💡 Nutze /help für detaillierte Hilfe"
+        
+        await update.message.reply_text(help_text, reply_markup=user_data.get('keyboard'))
+        return user_data.get('status', AUTOMATION)
+    
+    async def help(self, update, context, user_data, markupList):
+        """Zeigt Hilfe für Automation-Modus"""
+        help_text = ""
+        for key, value in textbefehl.items():
+            help_text += f"- /{key} {value}\n"
+        
+    
+    async def default(self, update, context, user_data, markupList):
+        """Default-Funktion für Automation-Modus"""
+        help_text = "🤖 Automation-Modus\n\n"
+        help_text += "Verfügbare Befehle:\n"
+        for key, value in textbefehl.items():
+            help_text += f"• /{key} - {value}\n"
+        help_text += "\n💡 Nutze /help für detaillierte Hilfe"
+        
+        await update.message.reply_text(help_text, reply_markup=user_data.get('keyboard'))
+        return user_data.get('status', AUTOMATION)
+    
+    async def handle_scenario_callback(self, update, context, user_data, markupList):
         """Handler für Szenario-Callback-Buttons mit optimierter API"""
         query = update.callback_query
         await query.answer()
         
-        if query.data.startswith('execute_scenario_'):
-            scenario_name = query.data.replace('execute_scenario_', '', 1)
-            
-            try:
-                # Login prüfen
-                if not self.fritz_api.login():
-                    await query.edit_message_text("❌ Fehler: Login bei FritzBox fehlgeschlagen")
-                    return
+        callback_data = query.data
+        
+        try:
+            if callback_data.startswith('execute_scenario_'):
+                scenario_text = callback_data.replace('execute_scenario_', '')
                 
-                # Szenario ausführen mit optimiertem Manager
-                if "Urlaub aktivieren" in scenario_name:
+                if "Urlaub aktivieren" in scenario_text:
                     result = self.stats_manager.apply_vacation_template(active=True)
                     if result['success']:
                         await query.edit_message_text("✅ Szenario 'Urlaub aktivieren' erfolgreich ausgeführt")
                     else:
-                        error_msg = result.get('error', 'Unbekannter Fehler')
-                        await query.edit_message_text(f"❌ Fehler beim Ausführen des Szenarios: {error_msg}")
-                elif "Urlaub deaktivieren" in scenario_name:
+                        await query.edit_message_text(f"❌ Fehler: {result['error']}")
+                elif "Urlaub deaktivieren" in scenario_text:
                     result = self.stats_manager.apply_vacation_template(active=False)
                     if result['success']:
                         await query.edit_message_text("✅ Szenario 'Urlaub deaktivieren' erfolgreich ausgeführt")
                     else:
-                        error_msg = result.get('error', 'Unbekannter Fehler')
-                        await query.edit_message_text(f"❌ Fehler beim Ausführen des Szenarios: {error_msg}")
+                        await query.edit_message_text(f"❌ Fehler: {result['error']}")
                 else:
-                    await query.edit_message_text(f"❌ Unbekanntes Szenario: {scenario_name}")
+                    await query.edit_message_text("❌ Unbekanntes Szenario")
                     
-            except Exception as e:
-                logger.error(f"Fehler bei der Szenario-Ausführung: {e}")
-                await query.edit_message_text(f"❌ Fehler bei der Szenario-Ausführung: {str(e)}")
-        
-        elif query.data == 'cancel_scenario':
-            await query.edit_message_text("❌ Szenario-Ausführung abgebrochen")
-        
-        elif query.data.startswith('apply_template_'):
-            # Vorlagen-ID und Name extrahieren
-            parts = query.data.split('_', 2)
-            logger.debug(f"Callback-Data: {query.data}")
-            logger.debug(f"Parts nach Split: {parts}")
-            
-            if len(parts) >= 3:
-                template_id = parts[1]
-                template_name = parts[2]
-                logger.debug(f"Extrahiert - ID: {template_id}, Name: {template_name}")
-            elif len(parts) == 2:
-                template_id = parts[1]
-                template_name = ''
-                logger.debug(f"Nur ID extrahiert: {template_id}")
-            else:
-                template_id = ''
-                template_name = ''
-                logger.debug("Keine ID extrahiert")
-            
-            try:
-                # Login prüfen
-                if not self.fritz_api.login():
-                    await query.edit_message_text("❌ Fehler: Login bei FritzBox fehlgeschlagen\n\n"
-                                            "💡 Bitte überprüfe:\n"
-                                            "• FritzBox ist erreichbar\n"
-                                            "• Zugangsdaten sind korrekt\n"
-                                            "• Keine andere Session aktiv")
-                    return
-                
-                # Vorlage mit optimierter API suchen
-                template = self.fritz_api.get_template_by_id(template_id, use_cache=True)
-                if template:
-                    template_name = template.name
-                    logger.debug(f"Vorlage gefunden: {template_name}")
-                else:
-                    logger.warning(f"Vorlage mit ID {template_id} nicht gefunden")
-                
-                # Vorlage anwenden
-                if template:
-                    success = self.fritz_api.apply_template(template.identifier)
+            elif callback_data.startswith('apply_template_'):
+                # Template-ID und Name extrahieren
+                parts = callback_data.replace('apply_template_', '').split('_', 1)
+                if len(parts) >= 2:
+                    template_id = parts[0]
+                    template_name = parts[1]
                     
-                    if success:
-                        await query.edit_message_text(f"✅ Vorlage '{template_name}' erfolgreich angewendet")
+                    template = self.fritz_api.get_template_by_id(template_id, use_cache=True)
+                    if template:
+                        success = self.fritz_api.apply_template(template.identifier)
+                        
+                        if success:
+                            await query.edit_message_text(f"✅ Vorlage '{template_name}' erfolgreich angewendet")
+                        else:
+                            await query.edit_message_text(f"❌ Fehler beim Anwenden der Vorlage '{template_name}'")
                     else:
-                        await query.edit_message_text(f"❌ Fehler beim Anwenden der Vorlage '{template_name}'")
+                        await query.edit_message_text(f"❌ Vorlage nicht gefunden: {template_id}")
                 else:
-                    await query.edit_message_text(f"❌ Vorlage mit ID {template_id} nicht gefunden")
+                    await query.edit_message_text("❌ Ungültiges Template-Format")
                     
-            except Exception as e:
-                error_msg = str(e)
-                if "Login" in error_msg or "Authentifizierung" in error_msg:
-                    await query.edit_message_text("❌ Login-Fehler bei FritzBox\n\n"
-                                            "💡 Mögliche Ursachen:\n"
-                                            "• FritzBox nicht erreichbar\n"
-                                            "• Falsche Zugangsdaten\n"
-                                            "• Session abgelaufen\n\n"
-                                            f"Details: {error_msg}")
-                else:
-                    await query.edit_message_text(f"❌ Fehler beim Anwenden der Vorlage: {error_msg}")
+            elif callback_data == 'cancel_scenario' or callback_data == 'cancel_template':
+                await query.edit_message_text("❌ Aktion abgebrochen")
+                
+        except Exception as e:
+            logger.error(f"Fehler in handle_scenario_callback: {e}")
+            await query.edit_message_text(f"❌ Fehler: {str(e)}")
         
-        elif query.data == 'cancel_template':
-            await query.edit_message_text("❌ Vorlagen-Anwendung abgebrochen")
+        return context.user_data.get('status', MAIN)
     
-    async def quit(self, update, context, user_data, markupList):
-        """Verlässt den Automation Mode"""
-        user_data['keyboard'] = markupList['MAIN']  # Annahme: MAIN ist der richtige Key
-        await update.message.reply_text("EXIT --AUTOMATIONMODE--",
-                reply_markup=user_data['keyboard'])
-        user_data['status'] = 'MAIN'  # Annahme: MAIN ist der richtige Status
-        return user_data['status']
-    
-    async def help(self, update, context, user_data, markupList):
-        """Zeigt die Hilfe für den Automation Mode an"""
-        text = '🤖 **Automation Mode - Hilfe:**\n\n'
-        for key, value in textbefehl.items():
-            text = text + '- /' + key + ' ' + value + '\n'
-        
-        text += '\n💡 **Tipp:** Mit diesen Befehlen kannst du FritzBox-Szenarien und Vorlagen verwalten'
-        text += '\n🚀 **Performance:** Alle Operationen nutzen Caching für schnellere Antworten'
-            
-        await update.message.reply_text(text,
-                    reply_markup=user_data['keyboard'], parse_mode='Markdown')
-        return user_data['status']
-    
-    def clear_cache(self):
-        """Löscht alle Caches"""
-        self.fritz_api.clear_cache()
-        self.stats_manager.clear_cache()
-
-def get_callback_handlers():
-    """Gibt die Callback-Handler-Konfiguration für AutomationMode zurück"""
-    return {
-        'patterns': [
-            r'execute_scenario_.*',
-            r'apply_template_.*',
-            r'cancel_scenario',
-            r'cancel_template'
-        ],
-        'handler': AutomationModeOptimized.handle_scenario_callback
-    }
-
-async def default(update, context, user_data, markupList):
-    """Wechselt in den Automation-Modus"""
-    context.user_data['keyboard'] = markupList[AUTOMATION]
-    context.user_data['status'] = AUTOMATION
-    await update.message.reply_text("-->AUTOMATIONMODE<--\n\n🤖 Verfügbare Funktionen:\n"
-                                  "• Szenarien anzeigen und ausführen\n"
-                                  "• Vorlagen anzeigen und anwenden\n"
-                                  "• Urlaubs-Szenarien erstellen\n\n"
-                                  "💡 Nutze /help für alle Befehle",
-                                  reply_markup=context.user_data['keyboard'])
-    return context.user_data['status']
+    def get_callback_handlers(self):
+        """Gibt Callback-Handler für Inline-Keyboards zurück"""
+        return {
+            'handler': self.handle_scenario_callback,
+            'patterns': [
+                r'execute_scenario_.*',
+                r'apply_template_.*',
+                r'cancel_scenario',
+                r'cancel_template'
+            ]
+        }
 
 # Globale Instanz
 automation_manager = OptimizedAutomationManager()
@@ -517,10 +406,6 @@ async def applyTemplate(update, context, user_data, markupList):
     """Legacy-Funktion - verwendet optimierten Manager"""
     return await automation_manager.apply_template(update, context, user_data, markupList)
 
-async def handle_scenario_callback(update, context):
-    """Legacy-Funktion - verwendet optimierten Manager"""
-    return await automation_manager.handle_scenario_callback(update, context)
-
 async def quit(update, context, user_data, markupList):
     """Legacy-Funktion - verwendet optimierten Manager"""
     return await automation_manager.quit(update, context, user_data, markupList)
@@ -528,3 +413,60 @@ async def quit(update, context, user_data, markupList):
 async def help(update, context, user_data, markupList):
     """Legacy-Funktion - verwendet optimierten Manager"""
     return await automation_manager.help(update, context, user_data, markupList)
+
+async def handle_scenario_callback(update, context):
+    """Legacy-Funktion - verwendet optimierten Manager"""
+    return await automation_manager.handle_scenario_callback(update, context)
+
+# Klasse für Kompatibilität mit fritzdect_bot.py
+class AutomationModeOptimized:
+    """Wrapper-Klasse für Kompatibilität mit dem Bot-Framework"""
+    
+    # Tastatur-Befehle und Textbefehle für Kompatibilität
+    tastertur = tastertur
+    textbefehl = textbefehl
+    
+    @staticmethod
+    async def default(update, context, user_data, markupList):
+        """Default-Funktion - delegiert zur globalen Instanz"""
+        return await automation_manager.default(update, context, user_data, markupList)
+    
+    @staticmethod
+    async def listScenarios(update, context, user_data, markupList):
+        """Legacy-Funktion - delegiert zur globalen Instanz"""
+        return await automation_manager.list_scenarios(update, context, user_data, markupList)
+    
+    @staticmethod
+    async def listTemplates(update, context, user_data, markupList):
+        """Legacy-Funktion - delegiert zur globalen Instanz"""
+        return await automation_manager.list_templates(update, context, user_data, markupList)
+    
+    @staticmethod
+    async def executeScenario(update, context, user_data, markupList):
+        """Legacy-Funktion - delegiert zur globalen Instanz"""
+        return await automation_manager.execute_scenario(update, context, user_data, markupList)
+    
+    @staticmethod
+    async def applyTemplate(update, context, user_data, markupList):
+        """Legacy-Funktion - delegiert zur globalen Instanz"""
+        return await automation_manager.apply_template(update, context, user_data, markupList)
+    
+    @staticmethod
+    async def quit(update, context, user_data, markupList):
+        """Legacy-Funktion - delegiert zur globalen Instanz"""
+        return await automation_manager.quit(update, context, user_data, markupList)
+    
+    @staticmethod
+    async def help(update, context, user_data, markupList):
+        """Legacy-Funktion - delegiert zur globalen Instanz"""
+        return await automation_manager.help(update, context, user_data, markupList)
+    
+    @staticmethod
+    def get_callback_handlers():
+        """Gibt Callback-Handler für Inline-Keyboards zurück"""
+        return automation_manager.get_callback_handlers()
+    
+    @staticmethod
+    async def handle_scenario_callback(update, context, user_data, markupList):
+        """Handler für Szenario-Callbacks - delegiert zur globalen Instanz"""
+        return await automation_manager.handle_scenario_callback(update, context, user_data, markupList)

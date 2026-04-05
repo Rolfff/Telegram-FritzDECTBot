@@ -67,13 +67,13 @@ class UserDatabase:
         # Verzeichnis erstellen falls nicht vorhanden
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         
-        # Tabelle erzeugen
+        # Tabelle für Benutzer erzeugen
         sql = f"""CREATE TABLE {self.table_name} (
             chatID INTEGER NOT NULL,
             firstname TEXT DEFAULT NULL,
             lastname TEXT DEFAULT NULL,
             isAdmin INTEGER NOT NULL DEFAULT 0,
-            allowedToDatetime DATE NOT NULL,
+            allowedToDatetime DATE DEFAULT NULL,
             failedAttempts INTEGER NOT NULL DEFAULT 0,
             blockedUntil DATE DEFAULT NULL,
             notifyVacationMode INTEGER NOT NULL DEFAULT 1,
@@ -81,6 +81,15 @@ class UserDatabase:
             notifyDoorFrontDoor INTEGER NOT NULL DEFAULT 1,
             language_code TEXT DEFAULT 'en',
             PRIMARY KEY(chatID)
+        );"""
+        self.execute(sql)
+        
+        # Tabelle für expire_notifications erzeugen
+        sql = """CREATE TABLE expire_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            notification_type TEXT NOT NULL,  -- 'weekly_summary' oder 'warning'
+            sent_at DATETIME NOT NULL,
+            chat_ids TEXT NOT NULL  -- Komma-separierte Liste von Chat-IDs
         );"""
         self.execute(sql)
         
@@ -97,6 +106,21 @@ class UserDatabase:
             # Prüfen welche Spalten existieren
             cursor.execute(f"PRAGMA table_info({self.table_name})")
             columns = [row[1] for row in cursor.fetchall()]
+            
+            # Prüfen ob expire_notifications Tabelle existiert
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='expire_notifications'")
+            expire_table_exists = cursor.fetchone() is not None
+            
+            if not expire_table_exists:
+                print("Erstelle expire_notifications Tabelle...")
+                sql = """CREATE TABLE expire_notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    notification_type TEXT NOT NULL,  -- 'weekly_summary' oder 'warning'
+                    sent_at DATETIME NOT NULL,
+                    chat_ids TEXT NOT NULL  -- Komma-separierte Liste von Chat-IDs
+                );"""
+                cursor.execute(sql)
+                connection.commit()
             
             # Fehlende Spalten hinzufügen
             if 'failedAttempts' not in columns:
@@ -143,11 +167,11 @@ class UserDatabase:
             print(f"User {chat_id} already exists, not adding/updating")
             return False
             
-        allowed_until = DT.datetime.now() + DT.timedelta(hours=-1)
+        # allowedToDatetime auf NULL setzen, erst bei Admin-Freigabe wird ein Datum gesetzt
         sql = f"""INSERT INTO {self.table_name} 
                  (chatID, firstname, lastname, isAdmin, allowedToDatetime, failedAttempts, blockedUntil, language_code) 
-                 VALUES (?, ?, ?, ?, ?, 0, NULL, ?)"""
-        return self.execute(sql, (chat_id, firstname, lastname, is_admin, allowed_until, language_code))
+                 VALUES (?, ?, ?, ?, NULL, 0, NULL, ?)"""
+        return self.execute(sql, (chat_id, firstname, lastname, is_admin, language_code))
     
     def update_user_info(self, chat_id, firstname=None, lastname=None):
         """Aktualisiert Benutzer-Info ohne Einstellungen zu überschreiben"""
@@ -254,6 +278,9 @@ class UserDatabase:
     
     def user_exists(self, chat_id):
         """Prüft ob Benutzer existiert"""
+        # Zuerst abgelaufene Benutzer aufräumen
+        self.cleanup_expired_users()
+        
         sql = f"SELECT EXISTS(SELECT 1 FROM {self.table_name} WHERE chatID = ?)"
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
@@ -281,8 +308,24 @@ class UserDatabase:
         finally:
             connection.close()
     
+    def cleanup_expired_users(self):
+        """Löscht automatisch Benutzer mit abgelaufenem Zugriff (nicht-Admins)"""
+        # Dann Benutzer löschen (Benachrichtigungen werden separat gehandhabt)
+        sql = f"""DELETE FROM {self.table_name} 
+                 WHERE isAdmin = 0 
+                 AND allowedToDatetime IS NOT NULL 
+                 AND allowedToDatetime < ?"""
+        return self.execute(sql, (DT.datetime.now(),))
+    
+    def check_expire_notifications(self):
+        """Prüft und sammelt expire-Benachrichtigungen ohne Benutzer zu löschen"""
+        return self.send_expire_notifications()
+    
     def is_user_allowed(self, chat_id):
         """Prüft ob Benutzer Zugriff hat"""
+        # Zuerst abgelaufene Benutzer aufräumen
+        self.cleanup_expired_users()
+        
         # Zuerst prüfen ob Benutzer geblockt ist
         if self.is_user_blocked(chat_id):
             return False
@@ -293,10 +336,11 @@ class UserDatabase:
         try:
             cursor.execute(sql, (chat_id,))
             result = cursor.fetchone()
-            if result:
+            if result and result[0] is not None:
+                # Nur prüfen wenn ein Datum gesetzt ist (NULL bedeutet keine Freigabe)
                 allowed_until = DT.datetime.strptime(result[0], '%Y-%m-%d %H:%M:%S.%f')
                 return DT.datetime.now() < allowed_until
-            return False
+            return False  # NULL oder kein Ergebnis = keine Freigabe
         except Error as e:
             print(f"Fehler bei Prüfung Benutzerzugriff: {e}")
             return False
@@ -403,12 +447,13 @@ class UserDatabase:
         try:
             cursor.execute(sql, (chat_id,))
             result = cursor.fetchone()
-            if result:
+            if result and result[0] is not None:
+                # Nur prüfen wenn ein Datum gesetzt ist (NULL bedeutet keine Freigabe)
                 allowed_until = DT.datetime.strptime(result[0], '%Y-%m-%d %H:%M:%S.%f')
                 return DT.datetime.now() < allowed_until
-            return False
+            return False  # NULL oder kein Ergebnis = keine Freigabe
         except Error as e:
-            print(f"Fehler bei Prüfung des Zugriffs: {e}")
+            print(f"Fehler bei Prüfung Zugriffsgewährung: {e}")
             return False
         finally:
             connection.close()
@@ -421,15 +466,16 @@ class UserDatabase:
     
     def get_pending_requests(self):
         """Gibt alle User zurück, die auf Freigabe warten"""
+        # Zuerst abgelaufene Benutzer aufräumen
+        self.cleanup_expired_users()
+        
         sql = f"""SELECT chatID, firstname, lastname FROM {self.table_name} 
-                  WHERE allowedToDatetime < ? AND isAdmin = 0 
-                  ORDER BY allowedToDatetime DESC"""
+                 WHERE allowedToDatetime IS NULL AND isAdmin = 0 
+                 ORDER BY chatID"""
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         try:
-            # User mit allowedToDatetime in der Vergangenheit sind wartend
-            now = DT.datetime.now()
-            cursor.execute(sql, (now,))
+            cursor.execute(sql)
             return cursor.fetchall()
         except Error as e:
             print(f"Fehler beim Abrufen der wartenden Anfragen: {e}")
@@ -439,6 +485,9 @@ class UserDatabase:
     
     def get_all_users(self):
         """Gibt alle Benutzer zurück"""
+        # Zuerst abgelaufene Benutzer aufräumen
+        self.cleanup_expired_users()
+        
         sql = f"SELECT * FROM {self.table_name}"
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
@@ -450,5 +499,176 @@ class UserDatabase:
             return []
         finally:
             connection.close()
-
     
+    def send_expire_notifications(self):
+        """Sendet Benachrichtigungen über ablaufende Benutzerrechte"""
+        from lib.config import Config
+        config = Config()
+        expire_config = config.get_expire_notification_config()
+        
+        if not expire_config.get('enabled', False):
+            return []
+        
+        now = DT.datetime.now()
+        notifications = []
+        
+        # Wöchentliche Zusammenfassung senden
+        if expire_config.get('weekly_summary', True):
+            weekly = self._send_weekly_summary(now, expire_config)
+            if weekly:
+                notifications.append(weekly)
+        
+        # Einzelne Warnungen senden
+        for days in expire_config.get('warning_days', [7, 3, 1]):
+            warning = self._send_warning_notifications(now, expire_config, days)
+            if warning:
+                notifications.append(warning)
+        
+        return notifications
+    
+    def _send_weekly_summary(self, now, expire_config):
+        """Sendet wöchentliche Zusammenfassung der ablaufenden Benutzerrechte"""
+        # Prüfen ob heute der konfigurierte Tag ist
+        summary_day = expire_config.get('summary_day', 1)  # 1 = Montag
+        if now.weekday() != summary_day:
+            return None
+        
+        # Prüfen ob heute schon eine Zusammenfassung gesendet wurde
+        if self._was_notification_sent_today('weekly_summary', now):
+            return None
+        
+        # Benutzer finden, die in den nächsten 7 Tagen ablaufen
+        seven_days_from_now = now + DT.timedelta(days=7)
+        sql = f"""SELECT chatID, firstname, lastname, allowedToDatetime 
+                 FROM {self.table_name} 
+                 WHERE isAdmin = 0 
+                 AND allowedToDatetime IS NOT NULL 
+                 AND allowedToDatetime <= ?
+                 AND allowedToDatetime > ?
+                 ORDER BY allowedToDatetime ASC"""
+        
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        try:
+            cursor.execute(sql, (seven_days_from_now, now))
+            expiring_users = cursor.fetchall()
+            
+            if expiring_users:
+                # Benachrichtigungstext erstellen
+                message = "📅 **Wöchentliche Zusammenfassung - Ablaufende Benutzerrechte:**\n\n"
+                
+                for user in expiring_users:
+                    chat_id, firstname, lastname, allowed_until = user
+                    days_until = (allowed_until - now).days
+                    name = f"{firstname or 'Unbekannt'} {lastname or ''}".strip()
+                    
+                    status_emoji = "🔴" if days_until <= 1 else "🟡" if days_until <= 3 else "🟢"
+                    message += f"{status_emoji} **{name}** (ID: {chat_id}) - "
+                    message += f"Recht läuft in {days_until} Tagen ab ({allowed_until.strftime('%d.%m.%Y %H:%M')})\n"
+                
+                # Letzte Benachrichtigung speichern
+                self._save_notification_sent('weekly_summary', now, [str(user[0]) for user in expiring_users])
+                
+                # Nachricht an Admins senden (wird vom Bot aufgerufen)
+                return {
+                    'type': 'weekly_summary',
+                    'message': message,
+                    'users': expiring_users
+                }
+            
+            return None
+            
+        except Error as e:
+            print(f"Fehler bei wöchentlicher Zusammenfassung: {e}")
+            return None
+        finally:
+            connection.close()
+    
+    def _send_warning_notifications(self, now, expire_config, days):
+        """Sendet Warnungen für Benutzer, deren Rechte bald ablaufen"""
+        # Prüfen ob für diesen Zeitraum heute schon eine Warnung gesendet wurde
+        if self._was_notification_sent_today(f'warning_{days}', now):
+            return None
+        
+        target_date = now + DT.timedelta(days=days)
+        
+        # Benutzer finden, deren Rechte in genau X Tagen ablaufen
+        sql = f"""SELECT chatID, firstname, lastname, allowedToDatetime 
+                 FROM {self.table_name} 
+                 WHERE isAdmin = 0 
+                 AND allowedToDatetime IS NOT NULL 
+                 AND DATE(allowedToDatetime) = DATE(?)
+                 ORDER BY allowedToDatetime ASC"""
+        
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        try:
+            cursor.execute(sql, (target_date,))
+            warning_users = cursor.fetchall()
+            
+            if warning_users:
+                # Benachrichtigungstext erstellen
+                urgency = "🔴 KRITISCH" if days <= 1 else "🟡 WARNUNG" if days <= 3 else "🟢 HINWEIS"
+                message = f"{urgency} - Benutzerrechte laufen in {days} Tag(en) ab:\n\n"
+                
+                for user in warning_users:
+                    chat_id, firstname, lastname, allowed_until = user
+                    name = f"{firstname or 'Unbekannt'} {lastname or ''}".strip()
+                    message += f"• **{name}** (ID: {chat_id}) - "
+                    message += f"ablaufend am {allowed_until.strftime('%d.%m.%Y %H:%M')}\n"
+                
+                # Letzte Benachrichtigung speichern
+                self._save_notification_sent(f'warning_{days}', now, [str(user[0]) for user in warning_users])
+                
+                # Nachricht an Admins senden (wird vom Bot aufgerufen)
+                return {
+                    'type': f'warning_{days}',
+                    'message': message,
+                    'users': warning_users
+                }
+            
+            return None
+            
+        except Error as e:
+            print(f"Fehler bei Warnungs-Benachrichtigung: {e}")
+            return None
+        finally:
+            connection.close()
+    
+    def _was_notification_sent_today(self, notification_type, now):
+        """Prüft ob heute schon eine Benachrichtigung dieses Typs gesendet wurde"""
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        sql = """SELECT COUNT(*) FROM expire_notifications 
+                 WHERE notification_type = ? 
+                 AND sent_at >= ? AND sent_at <= ?"""
+        
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        try:
+            cursor.execute(sql, (notification_type, today_start, today_end))
+            result = cursor.fetchone()
+            return result[0] > 0
+        except Error as e:
+            print(f"Fehler bei Prüfung gesendeter Benachrichtigungen: {e}")
+            return False
+        finally:
+            connection.close()
+    
+    def _save_notification_sent(self, notification_type, now, chat_ids):
+        """Speichert, dass eine Benachrichtigung gesendet wurde"""
+        sql = """INSERT INTO expire_notifications (notification_type, sent_at, chat_ids) 
+                 VALUES (?, ?, ?)"""
+        
+        connection = sqlite3.connect(self.db_path)
+        cursor = connection.cursor()
+        try:
+            cursor.execute(sql, (notification_type, now, ','.join(chat_ids)))
+            connection.commit()
+            return True
+        except Error as e:
+            print(f"Fehler beim Speichern der Benachrichtigung: {e}")
+            return False
+        finally:
+            connection.close()
