@@ -30,6 +30,26 @@
   },
   "security": {
     "max_failed_attempts": 5,
-    "block_duration_days": 2
+    "block_duration_days": 2,
+    "allowed_fritzbox_ips": ["192.168.178.1"],
+    "api_port": 8080
+  },
+  "notifications": {
+    "door_power_meter": {
+      "de": "🚪 **Tür vom Stromzähler**\n\nEin Ereignis wurde an der FritzBox ausgelöst.\n\nPrüfe bitte den Status der Geräte.",
+      "en": "🚪 **Door Power Meter**\n\nAn event has been triggered at the FritzBox.\n\nPlease check the status of your devices."
+    },
+    "door_front_door": {
+      "de": "🏠 **Haustür**\n\nDie Haustür wurde geöffnet oder geschlossen.",
+      "en": "🏠 **Front Door**\n\nThe front door has been opened or closed."
+    },
+    "vacation_mode": {
+      "de": "🏖️ **Urlaubsmodus**\n\nDer Urlaubsmodus wurde aktiviert/deaktiviert.",
+      "en": "🏖️ **Vacation Mode**\n\nThe vacation mode has been activated/deactivated."
+    },
+    "temperature_warning": {
+      "de": "🌡️ **Temperaturwarnung**\n\nDie Temperatur hat einen kritischen Wert erreicht.\n\nBitte prüfen Sie die Einstellungen.",
+      "en": "🌡️ **Temperature Warning**\n\nThe temperature has reached a critical value.\n\nPlease check your settings."
+    }
   }
 }

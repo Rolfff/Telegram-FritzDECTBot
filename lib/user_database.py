@@ -105,7 +105,7 @@ class UserDatabase:
         try:
             # Prüfen welche Spalten existieren
             cursor.execute(f"PRAGMA table_info({self.table_name})")
-            columns = [row[1] for row in cursor.fetchall()]
+            existing_columns = [row[1] for row in cursor.fetchall()]
             
             # Prüfen ob expire_notifications Tabelle existiert
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='expire_notifications'")
@@ -122,38 +122,35 @@ class UserDatabase:
                 cursor.execute(sql)
                 connection.commit()
             
-            # Fehlende Spalten hinzufügen
-            if 'failedAttempts' not in columns:
+            # Fehlende Standard-Spalten hinzufügen
+            if 'failedAttempts' not in existing_columns:
                 print("Füge Spalte 'failedAttempts' hinzu...")
                 cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN failedAttempts INTEGER NOT NULL DEFAULT 0")
                 connection.commit()
             
-            if 'blockedUntil' not in columns:
+            if 'blockedUntil' not in existing_columns:
                 print("Füge Spalte 'blockedUntil' hinzu...")
                 cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN blockedUntil DATE DEFAULT NULL")
                 connection.commit()
             
-            # Neue Benachrichtigungs-Spalten hinzufügen
-            if 'notifyVacationMode' not in columns:
-                print("Füge Spalte 'notifyVacationMode' hinzu...")
-                cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN notifyVacationMode INTEGER NOT NULL DEFAULT 1")
-                connection.commit()
-            
-            if 'notifyDoorPowerMeter' not in columns:
-                print("Füge Spalte 'notifyDoorPowerMeter' hinzu...")
-                cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN notifyDoorPowerMeter INTEGER NOT NULL DEFAULT 1")
-                connection.commit()
-            
-            if 'notifyDoorFrontDoor' not in columns:
-                print("Füge Spalte 'notifyDoorFrontDoor' hinzu...")
-                cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN notifyDoorFrontDoor INTEGER NOT NULL DEFAULT 1")
-                connection.commit()
-            
             # Spracheinstellung hinzufügen
-            if 'language_code' not in columns:
+            if 'language_code' not in existing_columns:
                 print("Füge Spalte 'language_code' hinzu...")
                 cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN language_code TEXT DEFAULT 'en'")
                 connection.commit()
+            
+            # Dynamisch Benachrichtigungs-Spalten aus der Config hinzufügen
+            config = Config()
+            notifications = config.get_notifications()
+            default_mode_value = self._get_default_mode_value()
+            
+            for config_key in notifications.keys():
+                db_column = f"notify{config_key.title().replace('_', '')}"
+                
+                if db_column not in existing_columns:
+                    print(f"Füge Spalte '{db_column}' hinzu...")
+                    cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN {db_column} INTEGER NOT NULL DEFAULT {default_mode_value}")
+                    connection.commit()
                 
         except Error as e:
             print(f"Fehler bei Datenbank-Migration: {e}")
@@ -374,42 +371,116 @@ class UserDatabase:
     
     def get_notification_settings(self, chat_id):
         """Gibt die Benachrichtigungseinstellungen für einen Benutzer zurück"""
-        sql = f"SELECT notifyVacationMode, notifyDoorPowerMeter, notifyDoorFrontDoor FROM {self.table_name} WHERE chatID = ?"
+        # Dynamisch alle Benachrichtigungstypen aus der Config laden
+        config = Config()
+        notifications = config.get_notifications()
+        
+        # Config-Keys zu Datenbank-Spalten-Namen konvertieren
+        db_columns = []
+        for config_key in notifications.keys():
+            db_column = f"notify{config_key.title().replace('_', '')}"
+            db_columns.append(db_column)
+        
+        if not db_columns:
+            # Fallback auf Standard-Spalten wenn keine Konfiguration gefunden
+            db_columns = ['notifyVacationMode', 'notifyDoorPowerMeter', 'notifyDoorFrontDoor']
+        
+        sql = f"SELECT {', '.join(db_columns)} FROM {self.table_name} WHERE chatID = ?"
         connection = sqlite3.connect(self.db_path)
         cursor = connection.cursor()
         try:
             cursor.execute(sql, (chat_id,))
             result = cursor.fetchone()
+            
+            settings = {}
             if result:
-                return {
-                    'notifyVacationMode': bool(result[0]),
-                    'notifyDoorPowerMeter': bool(result[1]),
-                    'notifyDoorFrontDoor': bool(result[2])
-                }
-            # Standardwerte zurückgeben wenn Benutzer nicht gefunden
-            return {
-                'notifyVacationMode': True,
-                'notifyDoorPowerMeter': True,
-                'notifyDoorFrontDoor': True
-            }
+                for i, db_column in enumerate(db_columns):
+                    value = result[i] if i < len(result) else self._get_default_mode_value()
+                    settings[db_column] = self._convert_notification_mode(value)
+            else:
+                # Standardwerte zurückgeben wenn Benutzer nicht gefunden
+                for db_column in db_columns:
+                    settings[db_column] = config.get_default_notification_mode()
+            
+            return settings
+            
         except Error as e:
             print(f"Fehler bei Abfrage Benachrichtigungseinstellungen: {e}")
-            return {
-                'notifyVacationMode': True,
-                'notifyDoorPowerMeter': True,
-                'notifyDoorFrontDoor': True
-            }
+            # Fallback: Standardwerte zurückgeben
+            settings = {}
+            for db_column in db_columns:
+                settings[db_column] = config.get_default_notification_mode()
+            return settings
         finally:
             connection.close()
     
+    def _get_default_mode_value(self):
+        """Gibt den Standard-Datenbank-Wert für Benachrichtigungsmodus zurück"""
+        modes = self.get_notification_modes()
+        default_mode = modes.get('default_mode', 'none')
+        return modes.get(default_mode, {}).get('value', 0)
+    
+    def _convert_notification_mode(self, value):
+        """Konvertiert Datenbank-Wert in Benachrichtigungs-Modus"""
+        if isinstance(value, str):
+            return value.lower()
+        
+        # Zuerst versuchen, über die konfigurierten Modi zu mappen
+        config = Config()
+        modes = config.get_notification_modes()
+        
+        for mode_name, mode_info in modes.items():
+            if mode_info.get('value') == value:
+                return mode_name
+        
+        # Fallback auf numerische Werte
+        if value == 0:
+            return 'none'
+        elif value == 1:
+            return 'silent'
+        elif value == 2:
+            return 'push'
+        else:
+            return config.get_default_notification_mode()  # Standard aus Config
+    
     def update_notification_setting(self, chat_id, setting, value):
         """Aktualisiert eine einzelne Benachrichtigungseinstellung"""
-        valid_settings = ['notifyVacationMode', 'notifyDoorPowerMeter', 'notifyDoorFrontDoor']
+        # Dynamisch alle Benachrichtigungstypen aus der Config laden
+        config = Config()
+        notifications = config.get_notifications()
+        
+        # Config-Keys zu Datenbank-Spalten-Namen konvertieren
+        valid_settings = []
+        for config_key in notifications.keys():
+            db_column = f"notify{config_key.title().replace('_', '')}"
+            valid_settings.append(db_column)
+        
+        if not valid_settings:
+            # Fallback auf Standard-Spalten wenn keine Konfiguration gefunden
+            valid_settings = ['notifyVacationMode', 'notifyDoorPowerMeter', 'notifyDoorFrontDoor']
+        
         if setting not in valid_settings:
-            raise ValueError(f"Ungültige Einstellung: {setting}")
+            raise ValueError(f"Ungültige Einstellung: {setting}. Erlaubt: {valid_settings}")
+        
+        # Wert in numerischen Modus konvertieren
+        if isinstance(value, str):
+            value = value.lower()
+            modes = config.get_notification_modes()
+            if value in modes:
+                db_value = modes[value].get('value')
+            else:
+                raise ValueError(f"Ungültiger Modus: {value}. Erlaubt: {list(modes.keys())}")
+        else:
+            # Numerische Werte direkt übernehmen
+            db_value = value
         
         sql = f"UPDATE {self.table_name} SET {setting} = ? WHERE chatID = ?"
-        return self.execute(sql, (int(value), chat_id))
+        return self.execute(sql, (db_value, chat_id))
+    
+    def get_notification_modes(self):
+        """Gibt die verfügbaren Benachrichtigungs-Modi zurück"""
+        config = Config()
+        return config.get_notification_modes()
     
     def update_all_notification_settings(self, chat_id, vacation_mode, door_power_meter, door_front_door):
         """Aktualisiert alle Benachrichtigungseinstellungen"""

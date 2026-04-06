@@ -75,6 +75,32 @@ class Config:
     
     def get_block_duration_days(self):
         return self.get('security.block_duration_days', 2)
+    
+    def get_allowed_fritzbox_ips(self):
+        """Gibt die Liste der erlaubten FritzBox-IPs zurück"""
+        return self.get('security.allowed_fritzbox_ips', ['192.168.178.1'])
+    
+    def get_api_port(self):
+        """Gibt den API-Port zurück"""
+        return self.get('security.api_port', 8080)
+    
+    def get_notifications(self):
+        """Gibt die Benachrichtigungstexte zurück"""
+        return self.get('notifications', {})
+    
+    def get_notification_modes(self):
+        """Gibt die konfigurierten Benachrichtigungs-Modi zurück"""
+        return {
+            'none': {'value': 0, 'description': 'Keine Benachrichtigung', 'icon': '🔕'},
+            'silent': {'value': 1, 'description': 'Silent Notification', 'icon': '🔔'},
+            'push': {'value': 2, 'description': 'Push-Nachricht', 'icon': '📱'},
+            'default_mode': 'none'
+        }
+    
+    def get_default_notification_mode(self):
+        """Gibt den Standard-Benachrichtigungsmodus zurück"""
+        modes = self.get_notification_modes()
+        return modes.get('default_mode', 'none')
 
 # Konstanten für Bot-Zustände
 MAIN, LOGIN, ADMIN, STATISTICS, AUTOMATION, SETTINGS = range(6)

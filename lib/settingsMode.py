@@ -41,15 +41,23 @@ def set_database(database_instance):
 def get_callback_handlers():
     """Gibt die Callback-Handler-Konfiguration für SettingsMode zurück"""
     return {
+        'handler': handle_settings_callback,
         'patterns': [
             r'set_language_.*',
-            r'toggle_vacation_.*',
-            r'toggle_power_.*',
-            r'toggle_door_.*',
+            r'select_vacation_.*',
+            r'select_power_.*',
+            r'select_door_.*',
+            r'select_temperature_.*',
+            r'select_burglar_.*',
+            r'set_notifyVacationMode_.*',
+            r'set_notifyDoorPowerMeter_.*',
+            r'set_notifyDoorFrontDoor_.*',
+            r'set_notifyTemperatureWarning_.*',
+            r'set_notifyBurglarAlarm_.*',
+            r'back_to_notifications_.*',
             r'cancel_language_.*',
             r'back_settings_.*'
-        ],
-        'handler': SettingsMode.handle_settings_callback
+        ]
     }
 
 
@@ -129,6 +137,65 @@ async def language(update, context, user_data, markupList):
     return user_data['status']
 
 
+async def show_mode_selection(update, context, user_data, notification_type, chat_id):
+    """Zeigt die Modus-Auswahl für einen bestimmten Benachrichtigungstyp"""
+    global db
+    if db is None:
+        await update.callback_query.edit_message_text("❌ Datenbank nicht verfügbar.")
+        return user_data['status']
+    
+    try:
+        # Aktuelle Einstellung holen
+        notification_settings = db.get_notification_settings(chat_id)
+        current_mode = notification_settings.get(notification_type, 'push')
+        
+        # Verfügbare Modi
+        available_modes = db.get_notification_modes()
+        
+        # Keyboard für Modus-Auswahl
+        keyboard = []
+        
+        # Typ-Header
+        type_names = {
+            'notifyVacationMode': '🏖️ Urlaubsschaltung',
+            'notifyDoorPowerMeter': '⚡ Tür-Stromzähler',
+            'notifyDoorFrontDoor': '🚪 Haustür',
+            'notifyTemperatureWarning': '🌡️ Temperaturwarnung',
+            'notifyBurglarAlarm': '🚨 Einbruchalarm'
+        }
+        
+        header_text = type_names.get(notification_type, notification_type)
+        keyboard.append([InlineKeyboardButton(header_text, callback_data=f"header_{notification_type}")])
+        
+        # Modi-Buttons
+        for mode_name, mode_info in available_modes.items():
+            if mode_name != 'default_mode':
+                icon = mode_info.get('icon', '')
+                desc = mode_info.get('description', mode_name)
+                current_icon = '✅' if mode_name == current_mode else ''
+                keyboard.append([InlineKeyboardButton(
+                    f"{current_icon} {icon} {desc}", 
+                    callback_data=f'set_{notification_type}_{chat_id}_{mode_name}'
+                )])
+        
+        # Zurück-Button
+        keyboard.append([InlineKeyboardButton("🔙 Zurück zur Übersicht", callback_data=f'back_to_notifications_{chat_id}')])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.edit_message_text(
+            f"{header_text}\n\n"
+            "Wähle deinen gewünschten Benachrichtigungs-Modus:\n\n"
+            "✅ = Aktuell eingestellt",
+            reply_markup=reply_markup
+        )
+        
+    except Exception as e:
+        await update.callback_query.edit_message_text(f"❌ Fehler: {str(e)}")
+    
+    return user_data['status']
+
+
 async def notifications(update, context, user_data, markupList):
     """Zeigt Benachrichtigungseinstellungen"""
     global db
@@ -144,39 +211,60 @@ async def notifications(update, context, user_data, markupList):
         notification_settings = db.get_notification_settings(chat_id)
         print(f"DEBUG: Notification settings from DB: {notification_settings}")
         
+        # Verfügbare Modi aus Config holen
+        available_modes = db.get_notification_modes()
+        
         if notification_settings:
-            vacation_mode = notification_settings.get('notifyVacationMode', True)
-            door_power_meter = notification_settings.get('notifyDoorPowerMeter', True)
-            door_front_door = notification_settings.get('notifyDoorFrontDoor', True)
+            vacation_mode = notification_settings.get('notifyVacationMode', 'push')
+            door_power_meter = notification_settings.get('notifyDoorPowerMeter', 'push')
+            door_front_door = notification_settings.get('notifyDoorFrontDoor', 'push')
+            temperature_warning = notification_settings.get('notifyTemperatureWarning', 'push')
+            burglar_alarm = notification_settings.get('notifyBurglarAlarm', 'push')
         else:
             # Standardwerte wenn nicht gefunden
-            vacation_mode = door_power_meter = door_front_door = True
+            default_mode = db.get_notification_modes().get('default_mode', 'push')
+            vacation_mode = door_power_meter = door_front_door = temperature_warning = burglar_alarm = default_mode
             print("DEBUG: Using default notification settings")
         
-        print(f"DEBUG: Final values - Vacation: {vacation_mode}, Power: {door_power_meter}, Door: {door_front_door}")
+        print(f"DEBUG: Final values - Vacation: {vacation_mode}, Power: {door_power_meter}, Door: {door_front_door}, Temp: {temperature_warning}, Burglar: {burglar_alarm}")
         
-        # Inline-Buttons für Benachrichtigungen
+        # Inline-Keyboard für Benachrichtigungstypen-Auswahl
         keyboard = []
         
-        # Urlaubsschaltung
-        vacation_text = "✅ Aktiv" if vacation_mode else "❌ Inaktiv"
+        # Benachrichtigungstypen mit aktuellen Modi anzeigen
+        vacation_icon = available_modes.get(vacation_mode, {}).get('icon', '📱')
+        vacation_desc = available_modes.get(vacation_mode, {}).get('description', vacation_mode)
         keyboard.append([InlineKeyboardButton(
-            f"🏖️ Urlaubsschaltung: {vacation_text}", 
-            callback_data=f'toggle_vacation_{chat_id}'
+            f"🏖️ Urlaubsschaltung: {vacation_icon} {vacation_desc}", 
+            callback_data=f'select_vacation_{chat_id}'
         )])
         
-        # Tür-Stromzähler
-        power_text = "✅ Aktiv" if door_power_meter else "❌ Inaktiv"
+        power_icon = available_modes.get(door_power_meter, {}).get('icon', '📱')
+        power_desc = available_modes.get(door_power_meter, {}).get('description', door_power_meter)
         keyboard.append([InlineKeyboardButton(
-            f"⚡ Tür-Stromzähler: {power_text}", 
-            callback_data=f'toggle_power_{chat_id}'
+            f"⚡ Tür-Stromzähler: {power_icon} {power_desc}", 
+            callback_data=f'select_power_{chat_id}'
         )])
         
-        # Haustür
-        door_text = "✅ Aktiv" if door_front_door else "❌ Inaktiv"
+        door_icon = available_modes.get(door_front_door, {}).get('icon', '📱')
+        door_desc = available_modes.get(door_front_door, {}).get('description', door_front_door)
         keyboard.append([InlineKeyboardButton(
-            f"🚪 Haustür: {door_text}", 
-            callback_data=f'toggle_door_{chat_id}'
+            f"🚪 Haustür: {door_icon} {door_desc}", 
+            callback_data=f'select_door_{chat_id}'
+        )])
+        
+        temp_icon = available_modes.get(temperature_warning, {}).get('icon', '📱')
+        temp_desc = available_modes.get(temperature_warning, {}).get('description', temperature_warning)
+        keyboard.append([InlineKeyboardButton(
+            f"🌡️ Temperaturwarnung: {temp_icon} {temp_desc}", 
+            callback_data=f'select_temperature_{chat_id}'
+        )])
+        
+        burglar_icon = available_modes.get(burglar_alarm, {}).get('icon', '📱')
+        burglar_desc = available_modes.get(burglar_alarm, {}).get('description', burglar_alarm)
+        keyboard.append([InlineKeyboardButton(
+            f"🚨 Einbruchalarm: {burglar_icon} {burglar_desc}", 
+            callback_data=f'select_burglar_{chat_id}'
         )])
         
         # Zurück-Button
@@ -185,8 +273,12 @@ async def notifications(update, context, user_data, markupList):
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
-            "🔔 Benachrichtigungseinstellungen\n\n"
-            "Wähle aus, welche Benachrichtigungen du erhalten möchtest:",
+            "🔔 **Benachrichtigungseinstellungen**\n\n"
+            "Wähle für jeden Benachrichtigungstyp deinen gewünschten Modus:\n\n"
+            "✅ = Aktuell eingestellt\n"
+            "🔕 Keine Benachrichtigung\n"
+            "📱 Push-Nachricht\n"
+            "📞 Anruf + Push",
             reply_markup=reply_markup
         )
         
@@ -225,7 +317,156 @@ async def handle_settings_callback(update, context, user_data, markupList):
     user_id = update.effective_user.id
     
     try:
-        if callback_data.startswith('set_language_'):
+        # Aktuelle Benachrichtigungseinstellungen holen
+        notification_settings = db.get_notification_settings(user_id)
+        # Verfügbare Modi aus Config holen
+        available_modes = db.get_notification_modes()
+        
+        if callback_data.startswith('select_vacation_'):
+            # Urlaubsschaltung-Modus-Auswahl
+            await show_mode_selection(update, context, user_data, 'notifyVacationMode', user_id)
+            
+        elif callback_data.startswith('select_power_'):
+            # Stromausfall-Modus-Auswahl
+            await show_mode_selection(update, context, user_data, 'notifyDoorPowerMeter', user_id)
+            
+        elif callback_data.startswith('select_door_'):
+            # Tür-Öffnungs-Modus-Auswahl
+            await show_mode_selection(update, context, user_data, 'notifyDoorFrontDoor', user_id)
+            
+        elif callback_data.startswith('select_temperature_'):
+            # Temperatur-Modus-Auswahl
+            await show_mode_selection(update, context, user_data, 'notifyTemperatureWarning', user_id)
+            
+        elif callback_data.startswith('select_burglar_'):
+            # Einbruch-Modus-Auswahl
+            await show_mode_selection(update, context, user_data, 'notifyBurglarAlarm', user_id)
+            
+        elif callback_data.startswith('set_notifyVacationMode_'):
+            # Urlaub-Benachrichtigungen setzen
+            mode = callback_data.replace(f'set_notifyVacationMode_{user_id}_', '')
+            print(f"DEBUG: Setting vacation notifications for user {user_id} to {mode}")
+            
+            if db is None:
+                print("ERROR: Database instance is None!")
+                await query.edit_message_text("❌ Datenbank nicht verfügbar")
+                return user_data['status']
+            
+            success = db.update_notification_setting(user_id, 'notifyVacationMode', mode)
+            print(f"DEBUG: Vacation notification update result: {success}")
+            
+            # Debug: Überprüfen ob die Änderung in der DB ankam
+            db.debug_user_settings(user_id)
+            
+            if success:
+                mode_info = available_modes.get(mode, {})
+                icon = mode_info.get('icon', '')
+                desc = mode_info.get('description', mode)
+                await query.edit_message_text(f"✅ Urlaub-Benachrichtigung: {icon} {desc}")
+            else:
+                await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
+                
+        elif callback_data.startswith('set_notifyDoorPowerMeter_'):
+            # Stromausfall-Benachrichtigungen setzen
+            mode = callback_data.replace(f'set_notifyDoorPowerMeter_{user_id}_', '')
+            print(f"DEBUG: Setting power notifications for user {user_id} to {mode}")
+            
+            if db is None:
+                print("ERROR: Database instance is None!")
+                await query.edit_message_text("❌ Datenbank nicht verfügbar")
+                return user_data['status']
+            
+            success = db.update_notification_setting(user_id, 'notifyDoorPowerMeter', mode)
+            print(f"DEBUG: Power notification update result: {success}")
+            
+            # Debug: Überprüfen ob die Änderung in der DB ankam
+            db.debug_user_settings(user_id)
+            
+            if success:
+                mode_info = available_modes.get(mode, {})
+                icon = mode_info.get('icon', '')
+                desc = mode_info.get('description', mode)
+                await query.edit_message_text(f"✅ Stromausfall-Benachrichtigung: {icon} {desc}")
+            else:
+                await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
+                
+        elif callback_data.startswith('set_notifyDoorFrontDoor_'):
+            # Tür-Öffnungs-Benachrichtigungen setzen
+            mode = callback_data.replace(f'set_notifyDoorFrontDoor_{user_id}_', '')
+            print(f"DEBUG: Setting door notifications for user {user_id} to {mode}")
+            
+            if db is None:
+                print("ERROR: Database instance is None!")
+                await query.edit_message_text("❌ Datenbank nicht verfügbar")
+                return user_data['status']
+            
+            success = db.update_notification_setting(user_id, 'notifyDoorFrontDoor', mode)
+            print(f"DEBUG: Door notification update result: {success}")
+            
+            # Debug: Überprüfen ob die Änderung in der DB ankam
+            db.debug_user_settings(user_id)
+            
+            if success:
+                mode_info = available_modes.get(mode, {})
+                icon = mode_info.get('icon', '')
+                desc = mode_info.get('description', mode)
+                await query.edit_message_text(f"✅ Tür-Öffnungs-Benachrichtigung: {icon} {desc}")
+            else:
+                await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
+                
+        elif callback_data.startswith('set_notifyTemperatureWarning_'):
+            # Temperatur-Benachrichtigungen setzen
+            mode = callback_data.replace(f'set_notifyTemperatureWarning_{user_id}_', '')
+            print(f"DEBUG: Setting temperature notifications for user {user_id} to {mode}")
+            
+            if db is None:
+                print("ERROR: Database instance is None!")
+                await query.edit_message_text("❌ Datenbank nicht verfügbar")
+                return user_data['status']
+            
+            success = db.update_notification_setting(user_id, 'notifyTemperatureWarning', mode)
+            print(f"DEBUG: Temperature notification update result: {success}")
+            
+            # Debug: Überprüfen ob die Änderung in der DB ankam
+            db.debug_user_settings(user_id)
+            
+            if success:
+                mode_info = available_modes.get(mode, {})
+                icon = mode_info.get('icon', '')
+                desc = mode_info.get('description', mode)
+                await query.edit_message_text(f"✅ Temperatur-Benachrichtigung: {icon} {desc}")
+            else:
+                await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
+                
+        elif callback_data.startswith('set_notifyBurglarAlarm_'):
+            # Einbruch-Benachrichtigungen setzen
+            mode = callback_data.replace(f'set_notifyBurglarAlarm_{user_id}_', '')
+            print(f"DEBUG: Setting burglar notifications for user {user_id} to {mode}")
+            
+            if db is None:
+                print("ERROR: Database instance is None!")
+                await query.edit_message_text("❌ Datenbank nicht verfügbar")
+                return user_data['status']
+            
+            success = db.update_notification_setting(user_id, 'notifyBurglarAlarm', mode)
+            print(f"DEBUG: Burglar notification update result: {success}")
+            
+            # Debug: Überprüfen ob die Änderung in der DB ankam
+            db.debug_user_settings(user_id)
+            
+            if success:
+                mode_info = available_modes.get(mode, {})
+                icon = mode_info.get('icon', '')
+                desc = mode_info.get('description', mode)
+                await query.edit_message_text(f"✅ Einbruch-Benachrichtigung: {icon} {desc}")
+            else:
+                await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
+                
+        elif callback_data.startswith('back_to_notifications_'):
+            # Zurück zur Benachrichtigungs-Übersicht
+            await notifications(update, context, user_data, markupList)
+                
+        elif callback_data.startswith('set_language_'):
             # Sprache setzen
             lang = callback_data.replace('set_language_', '')
             print(f"DEBUG: Raw callback_data: {callback_data}")
@@ -257,10 +498,10 @@ async def handle_settings_callback(update, context, user_data, markupList):
             else:
                 await query.edit_message_text("❌ Sprachänderung fehlgeschlagen")
                 
-        elif callback_data.startswith('toggle_vacation_'):
-            # Urlaub-Benachrichtigungen umschalten
-            enabled = callback_data.endswith('_on')
-            print(f"DEBUG: Setting vacation notifications for user {user_id} to {enabled}")
+        elif callback_data.startswith('set_vacation_'):
+            # Urlaub-Benachrichtigungen setzen
+            mode = callback_data.replace(f'set_vacation_{user_id}_', '')
+            print(f"DEBUG: Setting vacation notifications for user {user_id} to {mode}")
             print(f"DEBUG: Database instance: {db}")
             
             if db is None:
@@ -268,22 +509,24 @@ async def handle_settings_callback(update, context, user_data, markupList):
                 await query.edit_message_text("❌ Datenbank nicht verfügbar")
                 return user_data['status']
             
-            success = db.update_notification_setting(user_id, 'notifyVacationMode', enabled)
+            success = db.update_notification_setting(user_id, 'notifyVacationMode', mode)
             print(f"DEBUG: Vacation notification update result: {success}")
             
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
             if success:
-                status = "aktiviert" if enabled else "deaktiviert"
-                await query.edit_message_text(f"✅ Urlaub-Benachrichtigungen {status}")
+                mode_info = available_modes.get(mode, {})
+                icon = mode_info.get('icon', '')
+                desc = mode_info.get('description', mode)
+                await query.edit_message_text(f"✅ Urlaub-Benachrichtigung: {icon} {desc}")
             else:
                 await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
                 
-        elif callback_data.startswith('toggle_power_'):
-            # Stromausfall-Benachrichtigungen umschalten
-            enabled = callback_data.endswith('_on')
-            print(f"DEBUG: Setting power notifications for user {user_id} to {enabled}")
+        elif callback_data.startswith('set_power_'):
+            # Stromausfall-Benachrichtigungen setzen
+            mode = callback_data.replace(f'set_power_{user_id}_', '')
+            print(f"DEBUG: Setting power notifications for user {user_id} to {mode}")
             print(f"DEBUG: Database instance: {db}")
             
             if db is None:
@@ -291,22 +534,24 @@ async def handle_settings_callback(update, context, user_data, markupList):
                 await query.edit_message_text("❌ Datenbank nicht verfügbar")
                 return user_data['status']
             
-            success = db.update_notification_setting(user_id, 'notifyDoorPowerMeter', enabled)
+            success = db.update_notification_setting(user_id, 'notifyDoorPowerMeter', mode)
             print(f"DEBUG: Power notification update result: {success}")
             
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
             if success:
-                status = "aktiviert" if enabled else "deaktiviert"
-                await query.edit_message_text(f"✅ Stromausfall-Benachrichtigungen {status}")
+                mode_info = available_modes.get(mode, {})
+                icon = mode_info.get('icon', '')
+                desc = mode_info.get('description', mode)
+                await query.edit_message_text(f"✅ Stromausfall-Benachrichtigung: {icon} {desc}")
             else:
                 await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
                 
-        elif callback_data.startswith('toggle_door_'):
-            # Tür-Öffnungs-Benachrichtigungen umschalten
-            enabled = callback_data.endswith('_on')
-            print(f"DEBUG: Setting door notifications for user {user_id} to {enabled}")
+        elif callback_data.startswith('set_door_'):
+            # Tür-Öffnungs-Benachrichtigungen setzen
+            mode = callback_data.replace(f'set_door_{user_id}_', '')
+            print(f"DEBUG: Setting door notifications for user {user_id} to {mode}")
             print(f"DEBUG: Database instance: {db}")
             
             if db is None:
@@ -314,17 +559,84 @@ async def handle_settings_callback(update, context, user_data, markupList):
                 await query.edit_message_text("❌ Datenbank nicht verfügbar")
                 return user_data['status']
             
-            success = db.update_notification_setting(user_id, 'notifyDoorFrontDoor', enabled)
+            success = db.update_notification_setting(user_id, 'notifyDoorFrontDoor', mode)
             print(f"DEBUG: Door notification update result: {success}")
             
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
             if success:
-                status = "aktiviert" if enabled else "deaktiviert"
-                await query.edit_message_text(f"✅ Tür-Öffnungs-Benachrichtigungen {status}")
+                mode_info = available_modes.get(mode, {})
+                icon = mode_info.get('icon', '')
+                desc = mode_info.get('description', mode)
+                await query.edit_message_text(f"✅ Tür-Öffnungs-Benachrichtigung: {icon} {desc}")
             else:
                 await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
+                
+        elif callback_data.startswith('set_temperature_'):
+            # Temperatur-Benachrichtigungen setzen
+            mode = callback_data.replace(f'set_temperature_{user_id}_', '')
+            print(f"DEBUG: Setting temperature notifications for user {user_id} to {mode}")
+            print(f"DEBUG: Database instance: {db}")
+            
+            if db is None:
+                print("ERROR: Database instance is None!")
+                await query.edit_message_text("❌ Datenbank nicht verfügbar")
+                return user_data['status']
+            
+            success = db.update_notification_setting(user_id, 'notifyTemperatureWarning', mode)
+            print(f"DEBUG: Temperature notification update result: {success}")
+            
+            # Debug: Überprüfen ob die Änderung in der DB ankam
+            db.debug_user_settings(user_id)
+            
+            if success:
+                mode_info = available_modes.get(mode, {})
+                icon = mode_info.get('icon', '')
+                desc = mode_info.get('description', mode)
+                await query.edit_message_text(f"✅ Temperatur-Benachrichtigung: {icon} {desc}")
+            else:
+                await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
+                
+        elif callback_data.startswith('set_burglar_'):
+            # Einbruch-Benachrichtigungen setzen
+            mode = callback_data.replace(f'set_burglar_{user_id}_', '')
+            print(f"DEBUG: Setting burglar notifications for user {user_id} to {mode}")
+            print(f"DEBUG: Database instance: {db}")
+            
+            if db is None:
+                print("ERROR: Database instance is None!")
+                await query.edit_message_text("❌ Datenbank nicht verfügbar")
+                return user_data['status']
+            
+            success = db.update_notification_setting(user_id, 'notifyBurglarAlarm', mode)
+            print(f"DEBUG: Burglar notification update result: {success}")
+            
+            # Debug: Überprüfen ob die Änderung in der DB ankam
+            db.debug_user_settings(user_id)
+            
+            if success:
+                mode_info = available_modes.get(mode, {})
+                icon = mode_info.get('icon', '')
+                desc = mode_info.get('description', mode)
+                await query.edit_message_text(f"✅ Einbruch-Benachrichtigung: {icon} {desc}")
+            else:
+                await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
+                
+        elif callback_data == 'vacation_header':
+            await query.answer("Urlaubsschaltung - Wähle einen Modus")
+            
+        elif callback_data == 'power_header':
+            await query.answer("Tür-Stromzähler - Wähle einen Modus")
+            
+        elif callback_data == 'door_header':
+            await query.answer("Haustür - Wähle einen Modus")
+            
+        elif callback_data == 'temp_header':
+            await query.answer("Temperaturwarnung - Wähle einen Modus")
+            
+        elif callback_data == 'burglar_header':
+            await query.answer("Einbruchalarm - Wähle einen Modus")
                 
         elif callback_data.startswith('cancel_language_'):
             await query.edit_message_text("❌ Sprachänderung abgebrochen")
