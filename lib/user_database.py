@@ -321,6 +321,16 @@ class UserDatabase:
         """Prüft und sammelt expire-Benachrichtigungen ohne Benutzer zu löschen"""
         return self.send_expire_notifications()
     
+    def delete_user(self, chat_id):
+        """Löscht einen Benutzer aus der Datenbank"""
+        sql = f"DELETE FROM {self.table_name} WHERE chatID = ?"
+        return self.execute(sql, (chat_id,))
+    
+    def delete_request(self, chat_id):
+        """Löscht eine Benutzeranfrage (Benutzer ohne Freigabe)"""
+        sql = f"DELETE FROM {self.table_name} WHERE chatID = ? AND allowedToDatetime IS NULL"
+        return self.execute(sql, (chat_id,))
+    
     def is_user_allowed(self, chat_id):
         """Prüft ob Benutzer Zugriff hat"""
         # Zuerst abgelaufene Benutzer aufräumen

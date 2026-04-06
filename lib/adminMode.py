@@ -44,9 +44,20 @@ class AdminMode:
     db = None
     
     @classmethod
+    def get_database(cls):
+        """Gibt die Datenbank-Instanz zurück, initialisiert bei Bedarf"""
+        if cls.db is None:
+            logger.warning("AdminMode.db ist None, initialisiere neu...")
+            from lib.user_database import UserDatabase
+            cls.db = UserDatabase()
+            logger.info(f"AdminMode.db neu initialisiert: {cls.db}")
+        return cls.db
+    
+    @classmethod
     def set_database(cls, database_instance):
         """Setzt die Datenbank-Instanz"""
         cls.db = database_instance
+        logger.info(f"AdminMode.db gesetzt: {cls.db}")
     
     @staticmethod
     def get_callback_handlers():
@@ -117,11 +128,7 @@ class AdminMode:
     @staticmethod
     async def nextRequest(update, context, user_data, markupList):
         """Nächsten User-Request anzeigen"""
-        global db
-        if db is None:
-            await update.message.reply_text("❌ Datenbank nicht verfügbar. Bitte kontaktiere den Admin.", reply_markup=user_data['keyboard'])
-            return context.user_data['status']
-            
+        db = AdminMode.get_database()
         try:
             # Hole alle wartenden Anfragen
             pending_requests = db.get_pending_requests()
@@ -178,7 +185,6 @@ class AdminMode:
         """Konfiguration anzeigen"""
         import json
         import os
-        global db
         logger = logging.getLogger(__name__)
         logger.debug("AdminMode.show_config aufgerufen")
         
@@ -341,11 +347,7 @@ class AdminMode:
     async def displayUsers(update, context, user_data, markupList):
         """Zeigt alle Benutzer an"""
         from lib.config import ADMIN
-        global db
-        if db is None:
-            await update.message.reply_text("❌ Datenbank nicht verfügbar. Bitte kontaktiere den Admin.", reply_markup=user_data['keyboard'])
-            return context.user_data['status']
-            
+        db = AdminMode.get_database()
         try:
             # Hole alle Benutzer
             all_users = db.get_all_users()
@@ -404,11 +406,7 @@ class AdminMode:
     async def deleteUsers(update, context, user_data, markupList):
         """Löscht Benutzer"""
         from lib.config import ADMIN
-        global db
-        if db is None:
-            await update.message.reply_text("❌ Datenbank nicht verfügbar. Bitte kontaktiere den Admin.", reply_markup=user_data['keyboard'])
-            return context.user_data['status']
-            
+        db = AdminMode.get_database()
         try:
             # Hole alle Benutzer für die Auswahl
             all_users = db.get_all_users()
@@ -501,17 +499,15 @@ class AdminMode:
                 chat_id = custom_days_chat_id
                 
                 # Zugriff gewähren
-                if AdminMode.db:
-                    AdminMode.db.extend_access(chat_id, days)
-                    await update.message.reply_text(f"✅ Benutzer {chat_id} wurde für {days} Tage freigegeben!", reply_markup=user_data['keyboard'])
-                    
-                    # Status zurücksetzen und im Admin-Mode bleiben
-                    user_data['waiting_for_custom_days'] = False
-                    user_data['custom_days_chat_id'] = None
-                    context.user_data['status'] = ADMIN
-                    context.user_data['keyboard'] = markupList[ADMIN]
-                else:
-                    await update.message.reply_text("❌ Datenbank nicht verfügbar.", reply_markup=user_data['keyboard'])
+                db = AdminMode.get_database()
+                db.extend_access(chat_id, days)
+                await update.message.reply_text(f"✅ Benutzer {chat_id} wurde für {days} Tage freigegeben!", reply_markup=user_data['keyboard'])
+                
+                # Status zurücksetzen und im Admin-Mode bleiben
+                user_data['waiting_for_custom_days'] = False
+                user_data['custom_days_chat_id'] = None
+                context.user_data['status'] = ADMIN
+                context.user_data['keyboard'] = markupList[ADMIN]
             else:
                 await update.message.reply_text("❌ Keine Chat-ID gefunden.", reply_markup=user_data['keyboard'])
                 
@@ -545,12 +541,10 @@ class AdminMode:
                 lastname = user_to_delete[2] or ''
                 
                 # User löschen
-                if AdminMode.db:
-                    AdminMode.db.delete_user(chat_id)
-                    await update.message.reply_text(f"✅ {firstname} {lastname} wurde gelöscht!", reply_markup=user_data['keyboard'])
-                    user_data['deleteUserList'] = None
-                else:
-                    await update.message.reply_text("❌ Datenbank nicht verfügbar.", reply_markup=user_data['keyboard'])
+                db = AdminMode.get_database()
+                db.delete_user(chat_id)
+                await update.message.reply_text(f"✅ {firstname} {lastname} wurde gelöscht!", reply_markup=user_data['keyboard'])
+                user_data['deleteUserList'] = None
             else:
                 await update.message.reply_text(f"❌ Ungültige Nummer. Bitte wähle 1-{len(delete_list)} oder 0 zum Abbrechen.", reply_markup=user_data['keyboard'])
                 
@@ -568,11 +562,7 @@ class AdminMode:
     async def grant_access(update, context, user_data, markupList):
         """Zeigt Benutzerliste zur Zugriffverlängerung mit Inline-Tastatur"""
         logger.info(f"grant_access aufgerufen mit Text: {update.message.text}")
-        global db
-        if db is None:
-            await update.message.reply_text("❌ Datenbank nicht verfügbar. Bitte kontaktiere den Admin.", reply_markup=user_data['keyboard'])
-            return context.user_data['status']
-        
+        db = AdminMode.get_database()
         try:
             # Alle Benutzer abrufen, die Zugriff haben oder hatten
             all_users = db.get_all_users()
@@ -659,7 +649,8 @@ class AdminMode:
         logger.info(f"Admin callback received: {callback_data}")
         
         # Datenbank-Instanz holen
-        db = AdminMode.db
+        db = AdminMode.get_database()
+        logger.info(f"AdminMode.db in callback: {db}")
         
         try:
             if callback_data.startswith('approve_request_'):
@@ -706,8 +697,7 @@ class AdminMode:
                 logger.warning(f"Unbekannter Callback: {callback_data}")
                 try:
                     await query.edit_message_text(
-                        "❌ Unbekannte Aktion",
-                        reply_markup=user_data['keyboard']
+                        "❌ Unbekannte Aktion"
                     )
                 except Exception as edit_error:
                     logger.error(f"Fehler beim Editieren der Nachricht: {edit_error}")
@@ -721,39 +711,6 @@ class AdminMode:
                 await query.answer("❌ Fehler bei der Aktion", show_alert=True)
             except Exception as answer_error:
                 logger.error(f"Fehler beim Answer: {answer_error}")
-        query = update.callback_query
-        
-        if AdminMode.db:
-            try:
-                # Standard-Zugriff für 30 Tage gewähren
-                allowed_until = AdminMode.db.grant_access(chat_id, 30)
-                
-                # User benachrichtigen
-                try:
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=f'✅ **Zugriff gewährt!**\n\n'
-                               f'📅 Du kannst den Bot jetzt bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr nutzen.\n\n'
-                               f'Viel Spaß mit dem FritzDECT-Bot! 🤖'
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to notify user {chat_id}: {e}")
-                
-                await query.edit_message_text(
-                    f'✅ Zugriff für Benutzer {chat_id} bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr gewährt.',
-                    reply_markup=user_data['keyboard']
-                )
-            except Exception as e:
-                await query.edit_message_text(
-                    f'❌ Fehler bei der Genehmigung: {str(e)}',
-                    reply_markup=user_data['keyboard']
-                )
-        else:
-            await query.edit_message_text(
-                '❌ Datenbank nicht verfügbar.',
-                reply_markup=user_data['keyboard']
-            )
-        
         return context.user_data['status']
     
     @staticmethod
@@ -761,51 +718,36 @@ class AdminMode:
         """Genehmigt einen User-Request"""
         query = update.callback_query
         
-        if AdminMode.db:
+        db = AdminMode.get_database()
+        try:
+            # Standard-Zugriff für 30 Tage gewähren
+            allowed_until = db.grant_access(chat_id, 30)
+            
+            # User benachrichtigen
             try:
-                # Standard-Zugriff für 30 Tage gewähren
-                allowed_until = AdminMode.db.grant_access(chat_id, 30)
-                
-                # User benachrichtigen
-                try:
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=f'✅ **Zugriff gewährt!**\n\n'
-                               f'📅 Du kannst den Bot jetzt bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr nutzen.\n\n'
-                               f'Viel Spaß mit dem FritzDECT-Bot! 🤖'
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to notify user {chat_id}: {e}")
-                
-                # Callback beantworten und Nachricht bearbeiten
-                await query.answer()
-                await query.edit_message_text(
-                    f'✅ Zugriff für Benutzer {chat_id} bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr gewährt.',
-                    reply_markup=user_data['keyboard']
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f'✅ **Zugriff gewährt!**\n\n'
+                           f'📅 Du kannst den Bot jetzt bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr nutzen.\n\n'
+                           f'Viel Spaß mit dem FritzDECT-Bot! 🤖'
                 )
             except Exception as e:
-                logger.error(f"Fehler bei der Genehmigung: {str(e)}")
-                try:
-                    await query.answer()
-                    await query.edit_message_text(
-                        f'❌ Fehler bei der Genehmigung: {str(e)}',
-                        reply_markup=user_data['keyboard']
-                    )
-                except Exception as answer_error:
-                    logger.error(f"Fehler beim Answer: {answer_error}")
-        else:
+                logger.error(f"Failed to notify user {chat_id}: {e}")
+            
+            # Callback beantworten und Nachricht bearbeiten
+            await query.answer()
+            await query.edit_message_text(
+                f'✅ Zugriff für Benutzer {chat_id} bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr gewährt.'
+            )
+        except Exception as e:
+            logger.error(f"Fehler bei der Genehmigung: {str(e)}")
             try:
                 await query.answer()
                 await query.edit_message_text(
-                    '❌ Datenbank nicht verfügbar.',
-                    reply_markup=user_data['keyboard']
+                    f'❌ Fehler bei der Genehmigung: {str(e)}'
                 )
-            except Exception as e:
-                logger.error(f"Fehler bei Datenbankzugriff: {e}")
-                try:
-                    await query.answer()
-                except Exception as answer_error:
-                    logger.error(f"Fehler beim Answer: {answer_error}")
+            except Exception as answer_error:
+                logger.error(f"Fehler beim Answer: {answer_error}")
         
         return context.user_data['status']
     
@@ -814,34 +756,27 @@ class AdminMode:
         """Lehnt einen User-Request ab"""
         query = update.callback_query
         
-        if AdminMode.db:
+        db = AdminMode.get_database()
+        try:
+            db.delete_request(chat_id)
+            
+            # User benachrichtigen
             try:
-                AdminMode.db.delete_request(chat_id)
-                
-                # User benachrichtigen
-                try:
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text='❌ **Zugriff abgelehnt**\n\n'
-                               'Deine Anfrage wurde leider abgelehnt.\n'
-                               'Bitte kontaktiere den Admin für weitere Informationen.'
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to notify user {chat_id}: {e}")
-                
-                await query.edit_message_text(
-                    f'❌ Anfrage von Benutzer {chat_id} abgelehnt.',
-                    reply_markup=user_data['keyboard']
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text='❌ **Zugriff abgelehnt**\n\n'
+                           'Deine Anfrage wurde leider abgelehnt.\n'
+                           'Bitte kontaktiere den Admin für weitere Informationen.'
                 )
             except Exception as e:
-                await query.edit_message_text(
-                    f'❌ Fehler bei der Ablehnung: {str(e)}',
-                    reply_markup=user_data['keyboard']
-                )
-        else:
+                logger.error(f"Failed to notify user {chat_id}: {e}")
+            
             await query.edit_message_text(
-                '❌ Datenbank nicht verfügbar.',
-                reply_markup=user_data['keyboard']
+                f'❌ Anfrage von Benutzer {chat_id} abgelehnt.'
+            )
+        except Exception as e:
+            await query.edit_message_text(
+                f'❌ Fehler bei der Ablehnung: {str(e)}'
             )
         
         return context.user_data['status']
@@ -851,34 +786,27 @@ class AdminMode:
         """Gewährt Zugriff für bestimmte Tage"""
         query = update.callback_query
         
-        if AdminMode.db:
+        db = AdminMode.get_database()
+        try:
+            allowed_until = db.grant_access(chat_id, days)
+            
+            # User benachrichtigen
             try:
-                allowed_until = AdminMode.db.grant_access(chat_id, days)
-                
-                # User benachrichtigen
-                try:
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=f'✅ **Zugriff gewährt!**\n\n'
-                               f'📅 Du kannst den Bot jetzt bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr nutzen.\n\n'
-                               f'Viel Spaß mit dem FritzDECT-Bot! 🤖'
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to notify user {chat_id}: {e}")
-                
-                await query.edit_message_text(
-                    f'✅ Zugriff für Benutzer {chat_id} für {days} Tage gewährt.',
-                    reply_markup=user_data['keyboard']
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f'✅ **Zugriff gewährt!**\n\n'
+                           f'📅 Du kannst den Bot jetzt bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr nutzen.\n\n'
+                           f'Viel Spaß mit dem FritzDECT-Bot! 🤖'
                 )
             except Exception as e:
-                await query.edit_message_text(
-                    f'❌ Fehler: {str(e)}',
-                    reply_markup=user_data['keyboard']
-                )
-        else:
+                logger.error(f"Failed to notify user {chat_id}: {e}")
+            
             await query.edit_message_text(
-                '❌ Datenbank nicht verfügbar.',
-                reply_markup=user_data['keyboard']
+                f'✅ Zugriff für Benutzer {chat_id} für {days} Tage gewährt.'
+            )
+        except Exception as e:
+            await query.edit_message_text(
+                f'❌ Fehler: {str(e)}'
             )
         
         return context.user_data['status']
@@ -898,12 +826,8 @@ class AdminMode:
     async def _handle_extend_access(update, context, user_data, markupList, chat_id):
         """Zeigt Optionen zur Zugriffverlängerung für einen bestimmten Benutzer"""
         query = update.callback_query
-        global db
         
-        if db is None:
-            await query.answer("❌ Datenbank nicht verfügbar", show_alert=True)
-            return context.user_data['status']
-        
+        db = AdminMode.get_database()
         try:
             # Benutzer-Info abrufen
             user_info = db.fetch_one(f"SELECT firstname, lastname, allowedToDatetime FROM {db.table_name} WHERE chatID = ?", (chat_id,))
@@ -972,11 +896,7 @@ class AdminMode:
     @staticmethod
     async def _show_user_list_callback(update, context, user_data, markupList):
         """Zeigt Benutzerliste für Callback-Updates an"""
-        global db
-        if db is None:
-            await query.answer("❌ Datenbank nicht verfügbar.", show_alert=True)
-            return context.user_data['status']
-        
+        db = AdminMode.get_database()
         try:
             # Alle Benutzer abrufen, die Zugriff haben oder hatten
             all_users = db.get_all_users()
@@ -1053,12 +973,8 @@ class AdminMode:
         """Verlängert den Zugriff für einen Benutzer um eine bestimmte Anzahl von Tagen"""
         query = update.callback_query
         logger.info(f"_extend_access_days aufgerufen: chat_id={chat_id}, days={days}")
-        global db
         
-        if db is None:
-            await query.answer("❌ Datenbank nicht verfügbar", show_alert=True)
-            return context.user_data['status']
-        
+        db = AdminMode.get_database()
         try:
             # Zugriff verlängern
             allowed_until = db.grant_access(chat_id, days)
@@ -1087,8 +1003,7 @@ class AdminMode:
                 f'✅ **Zugriff verlängert!**\n\n'
                 f'👤 {name} (ID: {chat_id})\n'
                 f'📅 Bis zum {allowed_until.strftime("%d.%m.%Y %H:%M")} Uhr\n'
-                f'⏰ Um {days} Tage verlängert',
-                reply_markup=user_data['keyboard']
+                f'⏰ Um {days} Tage verlängert'
             )
             
             return context.user_data['status']
@@ -1131,11 +1046,7 @@ class AdminMode:
             logger.error("handle_extend_days mit Callback-Query aufgerufen - das sollte nicht passieren!")
             return context.user_data['status']
         
-        global db
-        if db is None:
-            await update.message.reply_text("❌ Datenbank nicht verfügbar.", reply_markup=user_data['keyboard'])
-            return context.user_data['status']
-        
+        db = AdminMode.get_database()
         try:
             # Tage aus der Nachricht extrahieren
             message_text = update.message.text.strip()
@@ -1156,10 +1067,10 @@ class AdminMode:
                 return context.user_data['status']
             
             # Zugriff verlängern
-            allowed_until = db.grant_access(chat_id, days)
+            allowed_until = AdminMode.db.grant_access(chat_id, days)
             
             # Benutzer-Info für Benachrichtigung
-            user_info = db.fetch_one(f"SELECT firstname, lastname FROM {db.table_name} WHERE chatID = ?", (chat_id,))
+            user_info = AdminMode.db.fetch_one(f"SELECT firstname, lastname FROM {AdminMode.db.table_name} WHERE chatID = ?", (chat_id,))
             if user_info:
                 firstname, lastname = user_info
                 name = f"{firstname or 'Unbekannt'} {lastname or ''}".strip()
