@@ -176,25 +176,166 @@ class AdminMode:
     @staticmethod
     async def show_config(update, context, user_data, markupList):
         """Konfiguration anzeigen"""
+        import json
+        import os
         global db
         logger = logging.getLogger(__name__)
         logger.debug("AdminMode.show_config aufgerufen")
         
-        config_text = (
-            "⚙️ **Bot-Konfiguration:**\\n\\n"
-            f"📊 **Datenbank:** {'✅ Aktiv' if AdminMode.db else '❌ Inaktiv'}\\n"
-            f"🔐 **Admin-Modus:** ✅ Aktiv\\n"
-            f"🤖 **Bot-Status:** ✅ Online\\n"
-            f"📅 **Server-Zeit:** {DT.datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\\n\\n"
-            "*Weitere Details folgen...*"
-        )
-        
-        # Sicherstellen, dass wir im Admin-Mode bleiben
-        context.user_data['status'] = ADMIN
-        context.user_data['keyboard'] = markupList[ADMIN]
-        
-        await update.message.reply_text(config_text, reply_markup=user_data['keyboard'])
-        return context.user_data['status']
+        try:
+            # Konfigurationsdatei suchen und laden
+            config_file = None
+            possible_paths = [
+                'config.json',
+                'config.example.json',
+                os.path.expanduser('~/.fritzdect_bot/config.json'),
+                '/etc/fritzdect_bot/config.json'
+            ]
+            
+            config_data = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    config_file = path
+                    try:
+                        with open(path, 'r', encoding='utf-8') as f:
+                            config_data = json.load(f)
+                        break
+                    except (json.JSONDecodeError, IOError) as e:
+                        logger.warning(f"Konnte Konfigurationsdatei {path} nicht lesen: {e}")
+                        continue
+            
+            if config_data is None:
+                config_text = (
+                    "⚙️ **Bot-Konfiguration:**\n\n"
+                    "❌ **Keine Konfigurationsdatei gefunden**\n\n"
+                    f"🔍 Gesuchte Pfade:\n"
+                    f"• config.json\n"
+                    f"• config.example.json\n"
+                    f"• ~/.fritzdect_bot/config.json\n"
+                    f"• /etc/fritzdect_bot/config.json\n\n"
+                    f"📊 **Datenbank:** {'✅ Aktiv' if AdminMode.db else '❌ Inaktiv'}\n"
+                    f"🔐 **Admin-Modus:** ✅ Aktiv\n"
+                    f"🤖 **Bot-Status:** ✅ Online\n"
+                    f"📅 **Server-Zeit:** {DT.datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
+                )
+            else:
+                # Funktion zum Maskieren sensibler Daten
+                def mask_sensitive_data(key, value):
+                    """Maskiert sensible Daten in der Konfiguration"""
+                    sensitive_keys = [
+                        'token', 'password', 'pass', 'key', 'secret', 
+                        'api_key', 'apikey', 'auth', 'credential'
+                    ]
+                    
+                    # Prüfen ob Schlüsselwort im Key enthalten ist
+                    key_lower = str(key).lower()
+                    if any(sensitive in key_lower for sensitive in sensitive_keys):
+                        return "***"
+                    
+                    # Bei String-Werten prüfen ob es wie ein Passwort aussieht
+                    if isinstance(value, str) and len(value) > 8:
+                        value_lower = value.lower()
+                        
+                        # Nicht maskieren: URLs, IP-Adressen, Dateipfade, Email-Adressen
+                        if (value_lower.startswith('http') or 
+                            value_lower.startswith('ftp') or
+                            value_lower.startswith('/') or
+                            value_lower.startswith('\\') or
+                            '@' in value or  # Email
+                            '.' in value and value.replace('.', '').replace('-', '').isdigit()):  # IP-Adresse
+                            return value
+                        
+                        # Wenn es nur aus alphanumerischen Zeichen besteht und lang ist, wahrscheinlich ein Passwort/Token
+                        if all(c.isalnum() or c in '-_.' for c in value):
+                            return "***"
+                    
+                    return value
+                
+                # Konfiguration rekursiv maskieren
+                def mask_config(obj):
+                    """Maskiert sensible Daten in einem verschachtelten Objekt"""
+                    if isinstance(obj, dict):
+                        return {k: mask_config(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [mask_config(item) for item in obj]
+                    elif isinstance(obj, (str, int, float, bool)):
+                        # Für primitive Werte können wir nicht maskieren, da wir den Kontext nicht kennen
+                        return obj
+                    else:
+                        return str(obj)
+                
+                # Konfiguration formatieren
+                config_sections = []
+                
+                # Sektionen in bestimmter Reihenfolge
+                section_order = ['telegram', 'fritzbox', 'templates', 'window_open', 'database', 'logging', 'security']
+                
+                for section_name in section_order:
+                    if section_name in config_data:
+                        section_data = config_data[section_name]
+                        masked_section = {}
+                        
+                        for key, value in section_data.items():
+                            masked_value = mask_sensitive_data(key, value)
+                            masked_section[key] = masked_value
+                        
+                        # Sektion formatieren
+                        section_text = f"📁 **{section_name.title()}:**\n"
+                        for key, value in masked_section.items():
+                            if isinstance(value, dict):
+                                section_text += f"  • {key}:\n"
+                                for sub_key, sub_value in value.items():
+                                    section_text += f"    - {sub_key}: {sub_value}\n"
+                            else:
+                                section_text += f"  • {key}: {value}\n"
+                        
+                        config_sections.append(section_text)
+                
+                # Zusätzliche Sektionen (falls vorhanden)
+                for section_name in config_data:
+                    if section_name not in section_order:
+                        section_data = config_data[section_name]
+                        section_text = f"📁 **{section_name.title()}:**\n"
+                        for key, value in section_data.items():
+                            masked_value = mask_sensitive_data(key, value)
+                            section_text += f"  • {key}: {masked_value}\n"
+                        config_sections.append(section_text)
+                
+                # Gesamten Konfigurationstext zusammenbauen
+                config_text = (
+                    f"⚙️ **Bot-Konfiguration:**\n\n"
+                    f"📄 **Datei:** {config_file}\n"
+                    f"📊 **Datenbank:** {'✅ Aktiv' if AdminMode.db else '❌ Inaktiv'}\n"
+                    f"🔐 **Admin-Modus:** ✅ Aktiv\n"
+                    f"🤖 **Bot-Status:** ✅ Online\n"
+                    f"📅 **Server-Zeit:** {DT.datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n\n"
+                    f"🔧 **Konfigurationsdetails:**\n\n"
+                )
+                
+                config_text += "\n".join(config_sections)
+                
+                # Hinweis für maskierte Daten hinzufügen
+                config_text += "\n\n🔒 **Hinweis:** Passwörter, Tokens und API-Keys sind aus Sicherheitsgründen mit *** maskiert."
+            
+            # Sicherstellen, dass wir im Admin-Mode bleiben
+            context.user_data['status'] = ADMIN
+            context.user_data['keyboard'] = markupList[ADMIN]
+            
+            await update.message.reply_text(config_text, reply_markup=user_data['keyboard'])
+            return context.user_data['status']
+            
+        except Exception as e:
+            error_text = (
+                f"❌ **Fehler beim Laden der Konfiguration:**\n\n"
+                f"🔍 Fehler: {str(e)}\n"
+                f"📊 **Datenbank:** {'✅ Aktiv' if AdminMode.db else '❌ Inaktiv'}\n"
+                f"🔐 **Admin-Modus:** ✅ Aktiv\n"
+                f"🤖 **Bot-Status:** ✅ Online\n"
+                f"📅 **Server-Zeit:** {DT.datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
+            )
+            
+            await update.message.reply_text(error_text, reply_markup=user_data['keyboard'])
+            return context.user_data['status']
     
     @staticmethod
     async def displayUsers(update, context, user_data, markupList):

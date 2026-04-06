@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import asyncio
 import threading
 import logging
+import time
 from typing import Dict, List, Optional, Tuple
 
 # Logger initialisieren
@@ -92,7 +93,6 @@ class OptimizedStatisticsManager:
     
     def _ensure_login(self) -> bool:
         """Stellt sicher dass Login gültig ist und vermeidet BlockTime"""
-        import time
         current_time = time.time()
         
         # Prüfen ob Login noch gültig oder Cache abgelaufen
@@ -709,9 +709,13 @@ def is_vacation_active(fritz_api=None):
 # Zusätzliche Funktionen für Haupt-Bot-Kompatibilität
 async def set_temp(update, context, user_data, markupList):
     """Temperatur setzen mit optimierter API"""
+    print("=== SET_TEMP AUFGERUFEN ===")
+    logger.info("=== SET_TEMP AUFGERUFEN ===")
     try:
         bot = context.bot
-        
+        chat_id = update.effective_chat.id
+        print(f"SET_TEMP Chat ID: {chat_id}")
+        logger.info(f"SET_TEMP Chat ID: {chat_id}")
         # Keyboard am Anfang setzen
         # Wenn markupList[STATISTICS] leer ist (Test-Modus), dynamisch erstellen
         if markupList and STATISTICS in markupList and markupList[STATISTICS]:
@@ -1095,11 +1099,33 @@ async def status(update, context, user_data, markupList):
                     reply_func(f"❌ Fehler bei der Statusabfrage: {str(e)}")
         return user_data['status']
 
+async def safe_edit_message(message, text, reply_markup=None):
+    """Sichere Nachrichten-Bearbeitung mit Fehlerbehandlung"""
+    try:
+        if message and hasattr(message, 'edit_text'):
+            logger.debug(f"Versuche Nachricht zu bearbeiten: {text[:50]}...")
+            await message.edit_text(text, reply_markup=reply_markup)
+            logger.debug("Nachricht erfolgreich bearbeitet")
+            return True
+        else:
+            logger.warning("Keine gültige Nachricht zum Bearbeiten vorhanden")
+        return False
+    except Exception as e:
+        logger.error(f"Fehler beim Bearbeiten der Nachricht: {type(e).__name__}: {e}")
+        return False
+
 async def temp_history(update, context, user_data, markupList):
     """Zeigt den Temperaturverlauf aller Heizungen der letzten 24 Stunden als Graphik an"""
+    print("=== TEMP_HISTORY AUFGERUFEN ===")
+    logger.info("=== TEMP_HISTORY AUFGERUFEN ===")
+    loading_message = None
+    message_edited = False
+    
     try:
         bot = context.bot
         chat_id = update.effective_chat.id
+        print(f"Chat ID: {chat_id}")
+        logger.info(f"Chat ID: {chat_id}")
         
         # Keyboard am Anfang setzen
         # Wenn markupList[STATISTICS] leer ist (Test-Modus), dynamisch erstellen
@@ -1121,33 +1147,31 @@ async def temp_history(update, context, user_data, markupList):
         # Ladebalken-Nachricht senden
         loading_message = await update.message.reply_text("📊 Lade Temperaturverlauf...", 
                                                      reply_markup=context.user_data.get('keyboard', []))
+        logger.info(f"Lade-Nachricht gesendet: Message ID {loading_message.message_id}")
         
         # Sicherstellen dass Login gültig ist
+        logger.info("Prüfe Login-Status...")
         if not stats_manager._ensure_login():
-            try:
-                await loading_message.edit_text("❌ Login bei FritzBox fehlgeschlagen.")
-            except Exception as e:
-                logger.warning(f"Konnte Lade-Nachricht nicht bearbeiten: {e}")
+            logger.error("Login fehlgeschlagen")
+            if not await safe_edit_message(loading_message, "❌ Login bei FritzBox fehlgeschlagen."):
                 await update.message.reply_text("❌ Login bei FritzBox fehlgeschlagen.")
             return user_data.get('status', STATISTICS)
+        logger.info("Login erfolgreich")
         
         # Geräte abrufen
+        logger.info("Rufe Geräte ab...")
         devices = stats_manager.fritz_api.get_devices(use_cache=False)
+        logger.info(f"{len(devices) if devices else 0} Geräte gefunden")
         if not devices:
-            try:
-                await loading_message.edit_text("❌ Keine Geräte gefunden.")
-            except Exception as e:
-                logger.warning(f"Konnte Lade-Nachricht nicht bearbeiten: {e}")
+            if not await safe_edit_message(loading_message, "❌ Keine Geräte gefunden."):
                 await update.message.reply_text("❌ Keine Geräte gefunden.")
             return user_data.get('status', STATISTICS)
         
         # Heizkörper filtern
         heaters = [device for device in devices if device.thermostat and device.thermostat.get('tsoll') is not None]
+        logger.info(f"{len(heaters)} Heizkörper gefunden")
         if not heaters:
-            try:
-                await loading_message.edit_text("❌ Keine Heizkörper gefunden.")
-            except Exception as e:
-                logger.warning(f"Konnte Lade-Nachricht nicht bearbeiten: {e}")
+            if not await safe_edit_message(loading_message, "❌ Keine Heizkörper gefunden."):
                 await update.message.reply_text("❌ Keine Heizkörper gefunden.")
             return user_data.get('status', STATISTICS)
         
@@ -1155,9 +1179,11 @@ async def temp_history(update, context, user_data, markupList):
         all_histories = []
         successful_analyses = 0
         
-        for heater in heaters:
+        logger.info(f"Sammle Temperaturhistorien für {len(heaters)} Heizkörper...")
+        for i, heater in enumerate(heaters):
             name = heater.name
             ain = heater.ain
+            logger.debug(f"Verarbeite Heizkörper {i+1}/{len(heaters)}: {name} (AIN: {ain})")
             
             # Historie abrufen
             history = stats_manager.get_temperature_history(ain)
@@ -1172,13 +1198,20 @@ async def temp_history(update, context, user_data, markupList):
                     'avg_temp': history['avg_temp']
                 })
                 successful_analyses += 1
+                logger.debug(f"✅ {name}: {len(history['temperatures_celsius'])} Datenpunkte")
+            else:
+                logger.warning(f"❌ {name}: Keine Daten verfügbar")
+        
+        logger.info(f"Daten sammeln abgeschlossen: {successful_analyses}/{len(heaters)} Heizkörper mit Daten")
         
         if not all_histories:
-            await loading_message.edit_text("❌ Keine Temperaturverlaufsdaten verfügbar.")
+            if not await safe_edit_message(loading_message, "❌ Keine Temperaturverlaufsdaten verfügbar."):
+                await update.message.reply_text("❌ Keine Temperaturverlaufsdaten verfügbar.")
             return user_data.get('status', STATISTICS)
         
         # Graphik erstellen
         try:
+            logger.info("Erstelle Graphik mit Matplotlib...")
             import matplotlib
             matplotlib.use('Agg')  # Non-interactive backend
             import matplotlib.pyplot as plt
@@ -1254,6 +1287,7 @@ async def temp_history(update, context, user_data, markupList):
                 summary_text += f"({history['min_temp']:.1f}-{history['max_temp']:.1f}°C)\n"
             
             # Bild senden
+            logger.info("Lösche Lade-Nachricht und sende Graphik...")
             await loading_message.delete()
             await update.message.reply_photo(
                 photo=img_buffer,
@@ -1261,22 +1295,17 @@ async def temp_history(update, context, user_data, markupList):
                 parse_mode='Markdown',
                 reply_markup=context.user_data.get('keyboard', [])
             )
+            logger.info("Temperaturverlauf erfolgreich gesendet")
             
         except ImportError:
-            try:
-                await loading_message.edit_text("❌ Matplotlib nicht installiert. Bitte installieren Sie:\n"
-                                              "`pip install matplotlib`")
-            except Exception as edit_error:
-                logger.error(f"Fehler beim Editieren der Nachricht: {edit_error}")
-                await update.message.reply_text("❌ Matplotlib nicht installiert. Bitte installieren Sie:\n"
-                                              "`pip install matplotlib`",
+            if not await safe_edit_message(loading_message, "❌ Matplotlib nicht installiert. Bitte installieren Sie:\n`pip install matplotlib`"):
+                await update.message.reply_text("❌ Matplotlib nicht installiert. Bitte installieren Sie:\n`pip install matplotlib`",
                                               reply_markup=context.user_data.get('keyboard', []))
         except Exception as e:
-            try:
-                await loading_message.edit_text(f"❌ Fehler beim Erstellen der Graphik: {str(e)}")
-            except Exception as edit_error:
-                logger.error(f"Fehler beim Editieren der Nachricht: {edit_error}")
-                await update.message.reply_text(f"❌ Fehler beim Erstellen der Graphik: {str(e)}",
+            error_msg = f"❌ Fehler beim Erstellen der Graphik: {str(e)}"
+            logger.error(f"Graphik-Fehler: {e}")
+            if not await safe_edit_message(loading_message, error_msg):
+                await update.message.reply_text(error_msg,
                                               reply_markup=context.user_data.get('keyboard', []))
     
     except Exception as e:

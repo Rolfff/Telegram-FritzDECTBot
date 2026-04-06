@@ -1,5 +1,6 @@
 python-telegram-bot>=20.0
 requests>=2.31.0
+matplotlib>=3.5.0
 
 # Testing dependencies
 pytest>=7.0.0

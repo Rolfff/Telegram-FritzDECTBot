@@ -432,6 +432,10 @@ async def async_main():
     
     autoStatesHandler={
             MAIN: [
+                MessageHandler(filters.Regex('^(Temperatur setzen)$'), lambda update, context: StatistikModeOptimized.set_temp(update, context, context.user_data, markupList)),
+                CommandHandler('set_temp', lambda update, context: StatistikModeOptimized.set_temp(update, context, context.user_data, markupList)),
+                MessageHandler(filters.Regex('^(Temp\\.-Verlauf)$'), lambda update, context: StatistikModeOptimized.temp_history(update, context, context.user_data, markupList)),
+                CommandHandler('temp_history', lambda update, context: StatistikModeOptimized.temp_history(update, context, context.user_data, markupList)),
                 MessageHandler(filters.Regex('^(Heizung)$'), lambda update, context: StatistikModeOptimized.default(update, context, context.user_data, markupList)),
                 CommandHandler('heizung', lambda update, context: StatistikModeOptimized.default(update, context, context.user_data, markupList)),
                 MessageHandler(filters.Regex('^(Automation)$'), lambda update, context: AutomationModeOptimized.default(update, context, context.user_data, markupList)),
@@ -442,6 +446,7 @@ async def async_main():
                 CommandHandler('logout', done),
             ] if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE else []
         }
+    
     
     for x in range(len(modeList)):
         
