@@ -27,7 +27,7 @@ cp config.example.json config.json
 
 ### config.json erweitern
 
-Die API benötigt folgende zusätzliche Konfigurationen:
+Die API benötigt folgende zusätzliche Konfigurationen (siehe `config.example.json`):
 
 ```json
 {
@@ -39,8 +39,8 @@ Die API benötigt folgende zusätzliche Konfigurationen:
   },
   "notifications": {
     "door_power_meter": {
-      "de": "🚪 **Tür-/Strommelder**\n\nEin Ereignis wurde an der FritzBox ausgelöst.\n\nPrüfe bitte den Status der Geräte.",
-      "en": "🚪 **Door/Power Sensor**\n\nAn event has been triggered at the FritzBox.\n\nPlease check the status of your devices."
+      "de": "🚪 **Tür vom Stromzähler**\n\nEin Ereignis wurde an der FritzBox ausgelöst.\n\nPrüfe bitte den Status der Geräte.",
+      "en": "🚪 **Door Power Meter**\n\nAn event has been triggered at the FritzBox.\n\nPlease check the status of your devices."
     },
     "door_front_door": {
       "de": "🏠 **Haustür**\n\nDie Haustür wurde geöffnet oder geschlossen.",
@@ -49,6 +49,14 @@ Die API benötigt folgende zusätzliche Konfigurationen:
     "vacation_mode": {
       "de": "🏖️ **Urlaubsmodus**\n\nDer Urlaubsmodus wurde aktiviert/deaktiviert.",
       "en": "🏖️ **Vacation Mode**\n\nThe vacation mode has been activated/deactivated."
+    },
+    "temperature_warning": {
+      "de": "🌡️ **Temperaturwarnung**\n\nDie Temperatur hat einen kritischen Wert erreicht.\n\nBitte prüfen Sie die Einstellungen.",
+      "en": "🌡️ **Temperature Warning**\n\nThe temperature has reached a critical value.\n\nPlease check your settings."
+    },
+    "burglar_alarm": {
+      "de": "🚨 **EINBRUCHALARM**\n\nEin Einbruchversuch wurde gemeldet.\n\nBitte überprüfen Sie die Situation sofort und rufen Sie bei Bedarf die Polizei!",
+      "en": "🚨 **BURGLAR ALARM**\n\nA burglary attempt has been reported.\n\nPlease check the situation immediately and call police if needed!"
     }
   }
 }
@@ -65,28 +73,29 @@ Die Benutzer können jetzt zwischen drei Benachrichtigungs-Modi wählen:
 
 **Benachrichtigungs-Modi:**
 - **0 / 'none'** - Keine Benachrichtigung
-- **1 / 'push'** - Nur Push-Nachricht (Standard)
-- **2 / 'call'** - Push-Nachricht + Anruf-Simulation
+- **1 / 'silent'** - Silent Notification (ohne Ton)
+- **2 / 'push'** - Push-Nachricht (mit Ton)
 
 **Datenbank-Spalten:**
 - `notifyDoorPowerMeter` - Modi für Strom/Tür-Meldungen
 - `notifyDoorFrontDoor` - Modi für Haustür-Meldungen  
 - `notifyVacationMode` - Modi für Urlaubsmodus-Meldungen
-- `notifyEmergencyCall` - Modi für Notrufe
+- `notifyTemperatureWarning` - Modi für Temperaturwarnungen
+- `notifyBurglarAlarm` - Modi für Einbruchalarme
 - **Dynamische Spalten** für jeden neuen Benachrichtigungstyp
 
 **Beispiel-Einstellungen:**
 ```python
 # Im Bot-Code:
-db.update_notification_setting(chat_id, 'notifyDoorPowerMeter', 'call')  # Anruf bei Strom-Meldung
+db.update_notification_setting(chat_id, 'notifyDoorPowerMeter', 'push')  # Push bei Strom-Meldung
 db.update_notification_setting(chat_id, 'notifyVacationMode', 'none')     # Keine Urlaubs-Benachrichtigung
-db.update_notification_setting(chat_id, 'notifyEmergencyCall', 'push')    # Nur Push bei Notruf
+db.update_notification_setting(chat_id, 'notifyBurglarAlarm', 'silent')  # Silent bei Einbruch
 ```
 
 **API-Verhalten:**
 - Benutzer mit `none` erhalten keine Benachrichtigung
-- Benutzer mit `push` erhalten nur die Text-Nachricht
-- Benutzer mit `call` erhalten Nachricht + Anruf-Simulation
+- Benutzer mit `silent` erhalten stille Benachrichtigung (ohne Ton)
+- Benutzer mit `push` erhalten normale Push-Benachrichtigung (mit Ton)
 
 ## API-Endpunkte
 
@@ -99,8 +108,11 @@ Die API unterstützt **dynamische Benachrichtigungstypen**! Jeder Eintrag in der
 
 **Parameter-Namen:**
 - Config-Key: `door_power_meter` → API-Parameter: `DoorPowerMeter`
-- Config-Key: `custom_alert` → API-Parameter: `CustomAlert`
+- Config-Key: `door_front_door` → API-Parameter: `DoorFrontDoor`
+- Config-Key: `vacation_mode` → API-Parameter: `VacationMode`
 - Config-Key: `temperature_warning` → API-Parameter: `TemperatureWarning`
+- Config-Key: `burglar_alarm` → API-Parameter: `BurglarAlarm`
+- Config-Key: `custom_alert` → API-Parameter: `CustomAlert`
 
 Beispiele mit den Standard-Typen:
 ```bash
@@ -122,6 +134,16 @@ curl -X POST http://localhost:8080/notify \
 curl -X POST http://localhost:8080/notify \
   -H "Content-Type: application/json" \
   -d '{"DoorFrontDoor": 1, "note": "Haustür wurde geöffnet"}'
+
+# POST-Anfrage mit Temperaturwarnung
+curl -X POST http://localhost:8080/notify \
+  -H "Content-Type: application/json" \
+  -d '{"TemperatureWarning": 1, "note": "Temperatur zu hoch"}'
+
+# POST-Anfrage mit Einbruchalarm
+curl -X POST http://localhost:8080/notify \
+  -H "Content-Type: application/json" \
+  -d '{"BurglarAlarm": 1, "note": "Einbruch erkannt"}'
 ```
 
 **Wichtiger Hinweis zur URL-Codierung:**
@@ -144,6 +166,10 @@ Beispiel für neuen Typ:
 {
   "notifications": {
     "door_power_meter": { ... },
+    "door_front_door": { ... },
+    "vacation_mode": { ... },
+    "temperature_warning": { ... },
+    "burglar_alarm": { ... },
     "custom_alert": {
       "de": "⚠️ **Benutzerdefinierter Alarm**\n\nEin benutzerdefiniertes Ereignis ist eingetreten.",
       "en": "⚠️ **Custom Alert**\n\nA custom event has occurred."

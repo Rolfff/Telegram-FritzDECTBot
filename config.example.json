@@ -1,13 +1,13 @@
 {
   "telegram": {
-    "token": "DEIN_BOT_TOKEN_HIER_EINFÜGEN",
-    "admin_chat_id": "DEINE_ADMIN_CHAT_ID_HIER_EINFÜGEN",
-    "password": "DEIN_SICHERES_PASSWORT_HIER_EINFÜGEN"
+    "token": "DEIN_BOT_TOKEN",
+    "admin_chat_id": "DEINE_ADMIN_CHAT_ID",
+    "password": "DEIN_PASSWORT"
   },
   "fritzbox": {
     "host": "192.168.178.1",
     "port": 80,
-    "username": "DEIN_FRITZBOX_BENUTZERNAME",
+    "username": "TelegramBot",
     "password": "DEIN_FRITZBOX_PASSWORT"
   },
   "templates": {
@@ -25,7 +25,7 @@
     "table": "users"
   },
   "logging": {
-    "level": "INFO",
+    "level": "Warning",
     "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
   },
   "security": {
@@ -50,6 +50,17 @@
     "temperature_warning": {
       "de": "🌡️ **Temperaturwarnung**\n\nDie Temperatur hat einen kritischen Wert erreicht.\n\nBitte prüfen Sie die Einstellungen.",
       "en": "🌡️ **Temperature Warning**\n\nThe temperature has reached a critical value.\n\nPlease check your settings."
+    },
+    "burglar_alarm": {
+      "de": "🚨 **EINBRUCHALARM**\n\nEin Einbruchversuch wurde gemeldet.\n\nBitte überprüfen Sie die Situation sofort und rufen Sie bei Bedarf die Polizei!",
+      "en": "🚨 **BURGLAR ALARM**\n\nA burglary attempt has been reported.\n\nPlease check the situation immediately and call police if needed!"
     }
+  },
+  "expire_notifications": {
+    "enabled": true,
+    "warning_days": [7, 3, 1],
+    "weekly_summary": true,
+    "summary_day": 1,
+    "summary_time": "09:00"
   }
 }
