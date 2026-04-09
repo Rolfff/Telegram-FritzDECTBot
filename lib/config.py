@@ -4,12 +4,17 @@
 import json
 import os
 
-# Globale Config-Instanz
+# Globale Config-Instanz und CLI-Parameter
 _global_config = None
+_cli_config_file = None
 
 class Config:
     def __init__(self, config_file='config.json'):
-        global _global_config
+        global _global_config, _cli_config_file
+        
+        # Wenn CLI-Parameter gesetzt ist, diesen verwenden
+        if _cli_config_file is not None:
+            config_file = _cli_config_file
         
         # Wenn bereits eine globale Config existiert, diese verwenden
         if _global_config is not None:
@@ -21,6 +26,14 @@ class Config:
         self.config_file = config_file
         self.config = self.load_config()
         _global_config = self
+    
+    @staticmethod
+    def set_cli_config_file(config_file):
+        """Setzt den CLI-Config-Parameter global"""
+        global _cli_config_file, _global_config
+        _cli_config_file = config_file
+        # Globale Config zurücksetzen, damit sie neu geladen wird
+        _global_config = None
     
     def load_config(self):
         try:

@@ -559,6 +559,9 @@ def main():
                        help='Pfad zur Konfigurationsdatei (Standard: config.json)')
     args = parser.parse_args()
     
+    # CLI-Parameter global setzen, bevor Config erstellt wird
+    Config.set_cli_config_file(args.config)
+    
     # Konfiguration mit übergebenem Pfad initialisieren
     global config, db
     config = Config(args.config)
