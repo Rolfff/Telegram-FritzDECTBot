@@ -11,7 +11,7 @@ except ImportError:
     TELEGRAM_AVAILABLE = False
     Update = None
     ReplyKeyboardMarkup = None
-    print("WARNING: telegram module nicht gefunden - Bot läuft im Test-Modus")
+    logging.warning("telegram module nicht gefunden - Bot läuft im Test-Modus")
 
 import signal
 import sys
@@ -29,7 +29,7 @@ except ImportError:
     ContextTypes = None
     ConversationHandler = None
     CallbackQueryHandler = None
-    print("WARNING: telegram.ext module nicht gefunden - Bot läuft im Test-Modus")
+    logging.warning("telegram.ext module nicht gefunden - Bot läuft im Test-Modus")
 from lib.config import modeList, markupList, LOGIN, MAIN, ADMIN, STATISTICS, AUTOMATION, SETTINGS, Config, genMarkupList
 from lib.user_database import UserDatabase
 from lib.fritzbox_api_optimized import OptimizedFritzBoxAPI
@@ -59,7 +59,7 @@ shutdown_event = asyncio.Event()
 
 def signal_handler(signum, frame):
     """Handle Ctrl+C gracefully"""
-    print("\nBot wird beendet...")
+    logging.info("\nBot wird beendet...")
     shutdown_event.set()
 
 # Register signal handlers
@@ -122,7 +122,7 @@ if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE:
     from lib.config import init_mode_list
     init_mode_list()
 else:
-    print("WARNING: Telegram-Module nicht verfügbar - Bot wird nicht gestartet")
+    logging.warning("Telegram-Module nicht verfügbar - Bot wird nicht gestartet")
     sys.exit(1)
 
 
@@ -418,12 +418,12 @@ async def async_main():
     """Asynchronous main function"""
     # Prüfen ob Telegram-Module verfügbar sind
     if not TELEGRAM_AVAILABLE or not TELEGRAM_EXT_AVAILABLE:
-        print("ERROR: Telegram-Module nicht verfügbar - Bot kann nicht gestartet werden")
+        logging.error("Telegram-Module nicht verfügbar - Bot kann nicht gestartet werden")
         return
     
     token = config.get_telegram_token()
     if not token:
-        print("Bot-Token nicht in config.json gefunden!")
+        logging.error("Bot-Token nicht in config.json gefunden!")
         return
     
     application = Application.builder().token(token).build()
@@ -511,7 +511,7 @@ async def async_main():
         else:
             logger.info(f"Keine Callback-Handler für {module.__name__} gefunden")
     
-    print("Bot wird gestartet...")
+    logging.info("Bot wird gestartet...")
     
     # Timer für expire-Benachrichtigungen
     async def expire_notification_timer():
@@ -544,7 +544,7 @@ async def async_main():
         # Wait for shutdown signal
         await shutdown_event.wait()
         
-        print("Bot wird heruntergefahren...")
+        logging.info("Bot wird heruntergefahren...")
         timer_task.cancel()
         await application.updater.stop()
         await application.stop()
@@ -580,15 +580,15 @@ def main():
         logger.info(f"Logging-Level: {config.get('logging.level')}")
         debug_logger.info("=== DEBUG LOG START ===")
         debug_logger.debug("TEST DEBUG MESSAGE")
-        print("DEBUG LOGGER AKTIVIERT - debug.log wird geschrieben")
-        print("TEST DEBUG MESSAGE GESCHRIEBEN")
+        logging.info("DEBUG LOGGER AKTIVIERT - debug.log wird geschrieben")
+        logging.debug("TEST DEBUG MESSAGE GESCHRIEBEN")
     
     try:
         asyncio.run(async_main())
     except KeyboardInterrupt:
-        print("\nBot beendet.")
+        logging.info("Bot beendet.")
     except Exception as e:
-        print(f"Fehler: {e}")
+        logging.error(f"Fehler: {e}")
 
 if __name__ == '__main__':
     main()

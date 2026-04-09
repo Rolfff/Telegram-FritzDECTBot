@@ -28,7 +28,7 @@ class Config:
                     with open(fallback_config, 'r', encoding='utf-8') as f:
                         config_data = json.load(f)
                     self.config_file = fallback_config
-                    print(f"Konfiguration aus Fallback-Datei geladen: {fallback_config}")
+                    logging.info(f"Konfiguration aus Fallback-Datei geladen: {fallback_config}")
                 except (json.JSONDecodeError, FileNotFoundError):
                     config_data = {}
                     self.config_file = config_file
@@ -58,11 +58,11 @@ class Config:
                 return json.load(f)
         except FileNotFoundError:
             abs_path = os.path.abspath(self.config_file)
-            print(f"Konfigurationsdatei nicht gefunden: {abs_path}")
+            logging.warning(f"Konfigurationsdatei nicht gefunden: {abs_path}")
             return {}
         except json.JSONDecodeError as e:
             abs_path = os.path.abspath(self.config_file)
-            print(f"Fehler beim Lesen der Konfigurationsdatei {abs_path}: {e}")
+            logging.error(f"Fehler beim Lesen der Konfigurationsdatei {abs_path}: {e}")
             return {}
     
     def get(self, key, default=None):
@@ -173,7 +173,7 @@ def init_mode_list():
         modeList[5] = SettingsMode
     except ImportError as e:
         # Fallback für Tests ohne vollständige Installation
-        print(f"ImportError in init_mode_list: {e}")
+        logging.warning(f"ImportError in init_mode_list: {e}")
         pass
 
 # Tastatur-Layouts

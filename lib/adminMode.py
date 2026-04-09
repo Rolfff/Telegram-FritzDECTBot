@@ -477,7 +477,7 @@ class AdminMode:
     async def updateUser(update, context, user_data, markupList):
         """Aktualisiert Benutzerdaten"""
         text = update.message.text
-        print(str(text))
+        logging.debug(f"Admin input: {text}")
         from lib.config import ADMIN
         user_data['keyboard'] = markupList[ADMIN]
         context.user_data['status'] = ADMIN

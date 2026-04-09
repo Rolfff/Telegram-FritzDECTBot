@@ -19,7 +19,7 @@ except ImportError:
     Bot = None
     InputFile = None
     io = None
-    print("WARNING: telegram module nicht gefunden - API läuft im Test-Modus")
+    logging.warning("telegram module nicht gefunden - API läuft im Test-Modus")
 
 app = Flask(__name__)
 
@@ -280,11 +280,11 @@ if __name__ == '__main__':
     config = Config()
     port = config.get_api_port()
     
-    print(f"Starte Notification API auf Port {port}")
-    print(f"Erlaubte IPs: {config.get_allowed_fritzbox_ips()}")
-    print(f"Health-Check: http://localhost:{port}/health")
-    print(f"Status: http://localhost:{port}/status")
-    print(f"Benachrichtigung: http://localhost:{port}/notify?DoorPowerMeter=1")
+    logging.info(f"Starte Notification API auf Port {port}")
+    logging.info(f"Erlaubte IPs: {config.get_allowed_fritzbox_ips()}")
+    logging.info(f"Health-Check: http://localhost:{port}/health")
+    logging.info(f"Status: http://localhost:{port}/status")
+    logging.info(f"Benachrichtigung: http://localhost:{port}/notify?DoorPowerMeter=1")
     
     # Flask-App starten
     app.run(
