@@ -99,7 +99,6 @@ async def language(update, context, user_data, markupList):
     try:
         chat_id = int(user_data['chatId'])  # Sicherstellen, dass es ein Integer ist
         current_language = db.get_user_language(chat_id)
-        print(f"DEBUG: Loading language for chat_id: {chat_id}, current language: {current_language}")
         
         # Sprach-Optionen mit Flag-Emojis
         keyboard = [
@@ -122,7 +121,6 @@ async def language(update, context, user_data, markupList):
         }
         
         current_display = language_names.get(current_language, f"🌐 {current_language.upper()}")
-        print(f"DEBUG: Current language display: {current_display}")
         
         await update.message.reply_text(
             f"🌐 Spracheinstellungen\n\n"
@@ -205,11 +203,9 @@ async def notifications(update, context, user_data, markupList):
     
     try:
         chat_id = int(user_data['chatId'])  # Sicherstellen, dass es ein Integer ist
-        print(f"DEBUG: Loading notifications for chat_id: {chat_id}")
         
         # Aktuelle Benachrichtigungseinstellungen holen
         notification_settings = db.get_notification_settings(chat_id)
-        print(f"DEBUG: Notification settings from DB: {notification_settings}")
         
         # Verfügbare Modi aus Config holen
         available_modes = db.get_notification_modes()
@@ -224,9 +220,7 @@ async def notifications(update, context, user_data, markupList):
             # Standardwerte wenn nicht gefunden
             default_mode = db.get_notification_modes().get('default_mode', 'push')
             vacation_mode = door_power_meter = door_front_door = temperature_warning = burglar_alarm = default_mode
-            print("DEBUG: Using default notification settings")
         
-        print(f"DEBUG: Final values - Vacation: {vacation_mode}, Power: {door_power_meter}, Door: {door_front_door}, Temp: {temperature_warning}, Burglar: {burglar_alarm}")
         
         # Inline-Keyboard für Benachrichtigungstypen-Auswahl
         keyboard = []
@@ -345,7 +339,6 @@ async def handle_settings_callback(update, context, user_data, markupList):
         elif callback_data.startswith('set_notifyVacationMode_'):
             # Urlaub-Benachrichtigungen setzen
             mode = callback_data.replace(f'set_notifyVacationMode_{user_id}_', '')
-            print(f"DEBUG: Setting vacation notifications for user {user_id} to {mode}")
             
             if db is None:
                 print("ERROR: Database instance is None!")
@@ -353,8 +346,7 @@ async def handle_settings_callback(update, context, user_data, markupList):
                 return user_data['status']
             
             success = db.update_notification_setting(user_id, 'notifyVacationMode', mode)
-            print(f"DEBUG: Vacation notification update result: {success}")
-            
+                        
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
@@ -369,7 +361,6 @@ async def handle_settings_callback(update, context, user_data, markupList):
         elif callback_data.startswith('set_notifyDoorPowerMeter_'):
             # Stromausfall-Benachrichtigungen setzen
             mode = callback_data.replace(f'set_notifyDoorPowerMeter_{user_id}_', '')
-            print(f"DEBUG: Setting power notifications for user {user_id} to {mode}")
             
             if db is None:
                 print("ERROR: Database instance is None!")
@@ -377,8 +368,7 @@ async def handle_settings_callback(update, context, user_data, markupList):
                 return user_data['status']
             
             success = db.update_notification_setting(user_id, 'notifyDoorPowerMeter', mode)
-            print(f"DEBUG: Power notification update result: {success}")
-            
+                        
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
@@ -393,7 +383,6 @@ async def handle_settings_callback(update, context, user_data, markupList):
         elif callback_data.startswith('set_notifyDoorFrontDoor_'):
             # Tür-Öffnungs-Benachrichtigungen setzen
             mode = callback_data.replace(f'set_notifyDoorFrontDoor_{user_id}_', '')
-            print(f"DEBUG: Setting door notifications for user {user_id} to {mode}")
             
             if db is None:
                 print("ERROR: Database instance is None!")
@@ -401,8 +390,7 @@ async def handle_settings_callback(update, context, user_data, markupList):
                 return user_data['status']
             
             success = db.update_notification_setting(user_id, 'notifyDoorFrontDoor', mode)
-            print(f"DEBUG: Door notification update result: {success}")
-            
+                        
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
@@ -417,16 +405,14 @@ async def handle_settings_callback(update, context, user_data, markupList):
         elif callback_data.startswith('set_notifyTemperatureWarning_'):
             # Temperatur-Benachrichtigungen setzen
             mode = callback_data.replace(f'set_notifyTemperatureWarning_{user_id}_', '')
-            print(f"DEBUG: Setting temperature notifications for user {user_id} to {mode}")
-            
+                        
             if db is None:
                 print("ERROR: Database instance is None!")
                 await query.edit_message_text("❌ Datenbank nicht verfügbar")
                 return user_data['status']
             
             success = db.update_notification_setting(user_id, 'notifyTemperatureWarning', mode)
-            print(f"DEBUG: Temperature notification update result: {success}")
-            
+                        
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
@@ -441,16 +427,14 @@ async def handle_settings_callback(update, context, user_data, markupList):
         elif callback_data.startswith('set_notifyBurglarAlarm_'):
             # Einbruch-Benachrichtigungen setzen
             mode = callback_data.replace(f'set_notifyBurglarAlarm_{user_id}_', '')
-            print(f"DEBUG: Setting burglar notifications for user {user_id} to {mode}")
-            
+                        
             if db is None:
                 print("ERROR: Database instance is None!")
                 await query.edit_message_text("❌ Datenbank nicht verfügbar")
                 return user_data['status']
             
             success = db.update_notification_setting(user_id, 'notifyBurglarAlarm', mode)
-            print(f"DEBUG: Burglar notification update result: {success}")
-            
+                        
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
@@ -469,23 +453,17 @@ async def handle_settings_callback(update, context, user_data, markupList):
         elif callback_data.startswith('set_language_'):
             # Sprache setzen
             lang = callback_data.replace('set_language_', '')
-            print(f"DEBUG: Raw callback_data: {callback_data}")
-            print(f"DEBUG: Extracted lang: '{lang}'")
-            
+                                    
             # Stelle sicher, dass nur der Sprachcode verwendet wird (falls zusätzliche Daten anhängen)
             lang = lang.split('_')[0]  # Nur den Teil vor dem ersten Unterstrich verwenden
-            print(f"DEBUG: Cleaned lang: '{lang}'")
-            print(f"DEBUG: Database instance: {db}")
-            print(f"DEBUG: User ID: {user_id}")
-            
+                                                
             if db is None:
                 print("ERROR: Database instance is None!")
                 await query.edit_message_text("❌ Datenbank nicht verfügbar")
                 return user_data['status']
             
             success = db.update_user_language(user_id, lang)
-            print(f"DEBUG: Language update result: {success}")
-            
+                        
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
@@ -501,17 +479,14 @@ async def handle_settings_callback(update, context, user_data, markupList):
         elif callback_data.startswith('set_vacation_'):
             # Urlaub-Benachrichtigungen setzen
             mode = callback_data.replace(f'set_vacation_{user_id}_', '')
-            print(f"DEBUG: Setting vacation notifications for user {user_id} to {mode}")
-            print(f"DEBUG: Database instance: {db}")
-            
+                                    
             if db is None:
                 print("ERROR: Database instance is None!")
                 await query.edit_message_text("❌ Datenbank nicht verfügbar")
                 return user_data['status']
             
             success = db.update_notification_setting(user_id, 'notifyVacationMode', mode)
-            print(f"DEBUG: Vacation notification update result: {success}")
-            
+                        
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
@@ -526,17 +501,14 @@ async def handle_settings_callback(update, context, user_data, markupList):
         elif callback_data.startswith('set_power_'):
             # Stromausfall-Benachrichtigungen setzen
             mode = callback_data.replace(f'set_power_{user_id}_', '')
-            print(f"DEBUG: Setting power notifications for user {user_id} to {mode}")
-            print(f"DEBUG: Database instance: {db}")
-            
+                                    
             if db is None:
                 print("ERROR: Database instance is None!")
                 await query.edit_message_text("❌ Datenbank nicht verfügbar")
                 return user_data['status']
             
             success = db.update_notification_setting(user_id, 'notifyDoorPowerMeter', mode)
-            print(f"DEBUG: Power notification update result: {success}")
-            
+                        
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
@@ -551,17 +523,14 @@ async def handle_settings_callback(update, context, user_data, markupList):
         elif callback_data.startswith('set_door_'):
             # Tür-Öffnungs-Benachrichtigungen setzen
             mode = callback_data.replace(f'set_door_{user_id}_', '')
-            print(f"DEBUG: Setting door notifications for user {user_id} to {mode}")
-            print(f"DEBUG: Database instance: {db}")
-            
+                                    
             if db is None:
                 print("ERROR: Database instance is None!")
                 await query.edit_message_text("❌ Datenbank nicht verfügbar")
                 return user_data['status']
             
             success = db.update_notification_setting(user_id, 'notifyDoorFrontDoor', mode)
-            print(f"DEBUG: Door notification update result: {success}")
-            
+                        
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
@@ -576,17 +545,14 @@ async def handle_settings_callback(update, context, user_data, markupList):
         elif callback_data.startswith('set_temperature_'):
             # Temperatur-Benachrichtigungen setzen
             mode = callback_data.replace(f'set_temperature_{user_id}_', '')
-            print(f"DEBUG: Setting temperature notifications for user {user_id} to {mode}")
-            print(f"DEBUG: Database instance: {db}")
-            
+                                    
             if db is None:
                 print("ERROR: Database instance is None!")
                 await query.edit_message_text("❌ Datenbank nicht verfügbar")
                 return user_data['status']
             
             success = db.update_notification_setting(user_id, 'notifyTemperatureWarning', mode)
-            print(f"DEBUG: Temperature notification update result: {success}")
-            
+                        
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             
@@ -601,17 +567,14 @@ async def handle_settings_callback(update, context, user_data, markupList):
         elif callback_data.startswith('set_burglar_'):
             # Einbruch-Benachrichtigungen setzen
             mode = callback_data.replace(f'set_burglar_{user_id}_', '')
-            print(f"DEBUG: Setting burglar notifications for user {user_id} to {mode}")
-            print(f"DEBUG: Database instance: {db}")
-            
+                                    
             if db is None:
                 print("ERROR: Database instance is None!")
                 await query.edit_message_text("❌ Datenbank nicht verfügbar")
                 return user_data['status']
             
             success = db.update_notification_setting(user_id, 'notifyBurglarAlarm', mode)
-            print(f"DEBUG: Burglar notification update result: {success}")
-            
+                        
             # Debug: Überprüfen ob die Änderung in der DB ankam
             db.debug_user_settings(user_id)
             

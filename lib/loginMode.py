@@ -10,31 +10,31 @@ except ImportError:
     Update = None
     ConversationHandler = None
     TELEGRAM_AVAILABLE = False
-    print("WARNING: telegram module nicht gefunden - LoginMode läuft im Test-Modus")
+    logging.warning("telegram module nicht gefunden - LoginMode läuft im Test-Modus")
 
 try:
     import os
 except ImportError:
-    print("WARNING: os module nicht gefunden")
+    logging.warning("os module nicht gefunden")
     os = None
 
 try:
     import importlib.util
 except ImportError:
-    print("WARNING: importlib.util module nicht gefunden")
+    logging.warning("importlib.util module nicht gefunden")
     importlib = None
 
 try:
     import sys
 except ImportError:
-    print("WARNING: sys module nicht gefunden")
+    logging.warning("sys module nicht gefunden")
     sys = None
 
 try:
     import logging
     logger = logging.getLogger(__name__)
 except ImportError:
-    print("WARNING: logging module nicht gefunden")
+    logging.warning("logging module nicht gefunden")
     logging = None
 
 def load_module(name, filepath):
@@ -46,7 +46,7 @@ def load_module(name, filepath):
         spec.loader.exec_module(module)
         return module
     else:
-        print("WARNING: load_module nicht möglich - benötigte Module nicht gefunden")
+        logging.warning("load_module nicht möglich - benötigte Module nicht gefunden")
         return None
 
 # Load configuration and database modules
@@ -137,11 +137,11 @@ async def login(update, context, user_data, markupList):
                             f'Antworte mit /admin um den Zugriff zu gewähren.'
                         )
                     except Exception as e:
-                        print(f"Failed to notify admin {admin_id}: {e}")
+                        logging.error(f"Failed to notify admin {admin_id}: {e}")
                 await context.bot.send_message(user_data['chatId'],
                     text='✅ Anfrage an Admin gesendet. Du wirst benachrichtigt, sobald der Zugriff freigegeben wurde.')
             except Exception as e:
-                print(f"Failed to notify admin: {e}")
+                logging.error(f"Failed to notify admin: {e}")
                 await context.bot.send_message(user_data['chatId'],
                     text='❌ Der Admin konnte nicht benachrichtigt werden. Bitte versuche es später erneut.')
         
@@ -150,12 +150,12 @@ async def login(update, context, user_data, markupList):
         return LOGIN 
     else:
         # Fehlgeschlagener Login-Versuch aufzeichnen und erneut nach Passwort fragen
-        print(f"DEBUG: Fehlgeschlagener Login-Versuch für Chat-ID {chat_id}")
+        logging.debug(f"Fehlgeschlagener Login-Versuch für Chat-ID {chat_id}")
         is_blocked = db.record_failed_attempt(chat_id)
         max_attempts = config.get_max_failed_attempts()
         remaining_attempts = max_attempts - db.get_failed_attempts(chat_id)
         
-        print(f"DEBUG: is_blocked={is_blocked}, remaining_attempts={remaining_attempts}")
+        logging.debug(f"is_blocked={is_blocked}, remaining_attempts={remaining_attempts}")
         
         if is_blocked:
             block_days = config.get_block_duration_days()

@@ -16,7 +16,7 @@ class UserDatabase:
         
         # Existenz der Datenbank überprüfen und ggf. diese anlegen
         if not os.path.exists(self.db_path):
-            print(f"Datenbank {self.db_path} nicht vorhanden - Datenbank wird angelegt.")
+            logging.info(f"Datenbank {self.db_path} nicht vorhanden - Datenbank wird angelegt.")
             self.create_database()
         else:
             # Prüfen ob Migration benötigt wird
@@ -27,21 +27,14 @@ class UserDatabase:
         cursor = connection.cursor()
         try:
             if params:
-                print(f"DEBUG: Executing SQL: {sql} with params: {params}")
                 cursor.execute(sql, params)
             else:
-                print(f"DEBUG: Executing SQL: {sql}")
                 cursor.execute(sql)
             
-            # Prüfe wie viele Zeilen betroffen sind
-            rows_affected = cursor.rowcount
-            print(f"DEBUG: Rows affected: {rows_affected}")
-            
             connection.commit()
-            print(f"DEBUG: Transaction committed successfully")
             return True  # Erfolg zurückgeben
         except Error as e:
-            print(f"ERROR: {str(e)} SQL-Query: {sql} Params: {params}")
+            logging.error(f"SQL Error: {str(e)} SQL-Query: {sql} Params: {params}")
             return False  # Fehler zurückgeben
         finally:
             connection.close()
@@ -58,7 +51,7 @@ class UserDatabase:
             result = cursor.fetchone()
             return result
         except Error as e:
-            print(f"Fehler bei fetch_one: {e} SQL-Query: {sql}")
+            logging.error(f"Fehler bei fetch_one: {e} SQL-Query: {sql}")
             return None
         finally:
             connection.close()
@@ -112,7 +105,7 @@ class UserDatabase:
             expire_table_exists = cursor.fetchone() is not None
             
             if not expire_table_exists:
-                print("Erstelle expire_notifications Tabelle...")
+                logging.info("Erstelle expire_notifications Tabelle...")
                 sql = """CREATE TABLE expire_notifications (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     notification_type TEXT NOT NULL,  -- 'weekly_summary' oder 'warning'
@@ -124,18 +117,18 @@ class UserDatabase:
             
             # Fehlende Standard-Spalten hinzufügen
             if 'failedAttempts' not in existing_columns:
-                print("Füge Spalte 'failedAttempts' hinzu...")
+                logging.info("Füge Spalte 'failedAttempts' hinzu...")
                 cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN failedAttempts INTEGER NOT NULL DEFAULT 0")
                 connection.commit()
             
             if 'blockedUntil' not in existing_columns:
-                print("Füge Spalte 'blockedUntil' hinzu...")
+                logging.info("Füge Spalte 'blockedUntil' hinzu...")
                 cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN blockedUntil DATE DEFAULT NULL")
                 connection.commit()
             
             # Spracheinstellung hinzufügen
             if 'language_code' not in existing_columns:
-                print("Füge Spalte 'language_code' hinzu...")
+                logging.info("Füge Spalte 'language_code' hinzu...")
                 cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN language_code TEXT DEFAULT 'en'")
                 connection.commit()
             
@@ -148,12 +141,12 @@ class UserDatabase:
                 db_column = f"notify{config_key.title().replace('_', '')}"
                 
                 if db_column not in existing_columns:
-                    print(f"Füge Spalte '{db_column}' hinzu...")
+                    logging.info(f"Füge Spalte '{db_column}' hinzu...")
                     cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN {db_column} INTEGER NOT NULL DEFAULT {default_mode_value}")
                     connection.commit()
                 
         except Error as e:
-            print(f"Fehler bei Datenbank-Migration: {e}")
+            logging.error(f"Fehler bei Datenbank-Migration: {e}")
         finally:
             connection.close()
     
@@ -161,7 +154,7 @@ class UserDatabase:
         """Fügt einen neuen Benutzer hinzu (überschreibt keine existierenden Benutzer)"""
         # Prüfen ob Benutzer bereits existiert
         if self.user_exists(chat_id):
-            print(f"User {chat_id} already exists, not adding/updating")
+            logging.info(f"User {chat_id} already exists, not adding/updating")
             return False
             
         # allowedToDatetime auf NULL setzen, erst bei Admin-Freigabe wird ein Datum gesetzt
@@ -222,7 +215,7 @@ class UserDatabase:
                 return check_blocked
             return False
         except Error as e:
-            print(f"Fehler bei Block-Prüfung: {e}")
+            logging.error(f"Fehler bei Block-Prüfung: {e}")
             return False
         finally:
             connection.close()
@@ -262,7 +255,7 @@ class UserDatabase:
                     cursor.execute(update_sql, (new_attempts, chat_id))
                     connection.commit()
         except Error as e:
-            print(f"Fehler bei Aufzeichnung fehlgeschlagener Versuche: {e}")
+            logging.error(f"Fehler bei Aufzeichnung fehlgeschlagener Versuche: {e}")
         finally:
             connection.close()
         
@@ -285,7 +278,7 @@ class UserDatabase:
             cursor.execute(sql, (chat_id,))
             return cursor.fetchone()[0] == 1
         except Error as e:
-            print(f"Fehler bei Existenz-Prüfung: {e}")
+            logging.error(f"Fehler bei Existenz-Prüfung: {e}")
             return False
         finally:
             connection.close()
@@ -300,7 +293,7 @@ class UserDatabase:
             result = cursor.fetchone()
             return result[0] if result else 0
         except Error as e:
-            print(f"Fehler bei Abfrage fehlgeschlagener Versuche: {e}")
+            logging.error(f"Fehler bei Abfrage fehlgeschlagener Versuche: {e}")
             return 0
         finally:
             connection.close()
@@ -349,7 +342,7 @@ class UserDatabase:
                 return DT.datetime.now() < allowed_until
             return False  # NULL oder kein Ergebnis = keine Freigabe
         except Error as e:
-            print(f"Fehler bei Prüfung Benutzerzugriff: {e}")
+            logging.error(f"Fehler bei Prüfung Benutzerzugriff: {e}")
             return False
         finally:
             connection.close()
@@ -364,7 +357,7 @@ class UserDatabase:
             result = cursor.fetchone()
             return result and result[0] == 1
         except Error as e:
-            print(f"Fehler bei Admin-Prüfung: {e}")
+            logging.error(f"Fehler bei Admin-Prüfung: {e}")
             return False
         finally:
             connection.close()
@@ -405,7 +398,7 @@ class UserDatabase:
             return settings
             
         except Error as e:
-            print(f"Fehler bei Abfrage Benachrichtigungseinstellungen: {e}")
+            logging.error(f"Fehler bei Abfrage Benachrichtigungseinstellungen: {e}")
             # Fallback: Standardwerte zurückgeben
             settings = {}
             for db_column in db_columns:
@@ -495,12 +488,7 @@ class UserDatabase:
                  FROM {self.table_name} WHERE chatID = ?"""
         result = self.fetch_one(sql, (chat_id,))
         if result:
-            print(f"User {chat_id} settings:")
-            print(f"  Name: {result[1]}")
-            print(f"  Language: {result[2]}")
-            print(f"  Vacation Notifications: {result[3]}")
-            print(f"  Power Notifications: {result[4]}")
-            print(f"  Door Notifications: {result[5]}")
+            logging.debug(f"User {chat_id} settings: Name={result[1]}, Language={result[2]}, Vacation={result[3]}, Power={result[4]}, Door={result[5]}")
             return {
                 'chatID': result[0],
                 'firstname': result[1],
@@ -510,7 +498,7 @@ class UserDatabase:
                 'notifyDoorFrontDoor': bool(result[5])
             }
         else:
-            print(f"User {chat_id} not found in database")
+            logging.warning(f"User {chat_id} not found in database")
             return None
     
     def grant_access(self, chat_id, days=30):
@@ -534,7 +522,7 @@ class UserDatabase:
                 return DT.datetime.now() < allowed_until
             return False  # NULL oder kein Ergebnis = keine Freigabe
         except Error as e:
-            print(f"Fehler bei Prüfung Zugriffsgewährung: {e}")
+            logging.error(f"Fehler bei Prüfung Zugriffsgewährung: {e}")
             return False
         finally:
             connection.close()
@@ -559,7 +547,7 @@ class UserDatabase:
             cursor.execute(sql)
             return cursor.fetchall()
         except Error as e:
-            print(f"Fehler beim Abrufen der wartenden Anfragen: {e}")
+            logging.error(f"Fehler beim Abrufen der wartenden Anfragen: {e}")
             return []
         finally:
             connection.close()
@@ -576,7 +564,7 @@ class UserDatabase:
             cursor.execute(sql)
             return cursor.fetchall()
         except Error as e:
-            print(f"Fehler beim Abrufen aller Benutzer: {e}")
+            logging.error(f"Fehler beim Abrufen aller Benutzer: {e}")
             return []
         finally:
             connection.close()
@@ -660,7 +648,7 @@ class UserDatabase:
             return None
             
         except Error as e:
-            print(f"Fehler bei wöchentlicher Zusammenfassung: {e}")
+            logging.error(f"Fehler bei wöchentlicher Zusammenfassung: {e}")
             return None
         finally:
             connection.close()
@@ -711,7 +699,7 @@ class UserDatabase:
             return None
             
         except Error as e:
-            print(f"Fehler bei Warnungs-Benachrichtigung: {e}")
+            logging.error(f"Fehler bei Warnungs-Benachrichtigung: {e}")
             return None
         finally:
             connection.close()
@@ -732,7 +720,7 @@ class UserDatabase:
             result = cursor.fetchone()
             return result[0] > 0
         except Error as e:
-            print(f"Fehler bei Prüfung gesendeter Benachrichtigungen: {e}")
+            logging.error(f"Fehler bei Prüfung gesendeter Benachrichtigungen: {e}")
             return False
         finally:
             connection.close()
@@ -749,7 +737,7 @@ class UserDatabase:
             connection.commit()
             return True
         except Error as e:
-            print(f"Fehler beim Speichern der Benachrichtigung: {e}")
+            logging.error(f"Fehler beim Speichern der Benachrichtigung: {e}")
             return False
         finally:
             connection.close()

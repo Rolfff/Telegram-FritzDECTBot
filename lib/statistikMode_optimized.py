@@ -100,16 +100,12 @@ class OptimizedStatisticsManager:
             not self.fritz_api.sid or 
             self.fritz_api.sid == "0000000000000000"):
             
-            print(f"DEBUG: Login erforderlich - letzter Login: {current_time - self._last_login_time:.1f}s her")
             if self.fritz_api.login():
                 self._last_login_time = current_time
-                print(f"DEBUG: Login erfolgreich - SID: {self.fritz_api.sid}")
                 return True
             else:
-                print(f"DEBUG: Login fehlgeschlagen - BlockTime möglich")
                 return False
         else:
-            print(f"DEBUG: Login noch gültig - SID: {self.fritz_api.sid}")
             return True
     
     def set_window_open_mode(self, ain: str, duration_minutes: Optional[int] = None, 
@@ -709,12 +705,10 @@ def is_vacation_active(fritz_api=None):
 # Zusätzliche Funktionen für Haupt-Bot-Kompatibilität
 async def set_temp(update, context, user_data, markupList):
     """Temperatur setzen mit optimierter API"""
-    print("=== SET_TEMP AUFGERUFEN ===")
     logger.info("=== SET_TEMP AUFGERUFEN ===")
     try:
         bot = context.bot
         chat_id = update.effective_chat.id
-        print(f"SET_TEMP Chat ID: {chat_id}")
         logger.info(f"SET_TEMP Chat ID: {chat_id}")
         # Keyboard am Anfang setzen
         # Wenn markupList[STATISTICS] leer ist (Test-Modus), dynamisch erstellen
@@ -1116,7 +1110,6 @@ async def safe_edit_message(message, text, reply_markup=None):
 
 async def temp_history(update, context, user_data, markupList):
     """Zeigt den Temperaturverlauf aller Heizungen der letzten 24 Stunden als Graphik an"""
-    print("=== TEMP_HISTORY AUFGERUFEN ===")
     logger.info("=== TEMP_HISTORY AUFGERUFEN ===")
     loading_message = None
     message_edited = False
@@ -1124,7 +1117,6 @@ async def temp_history(update, context, user_data, markupList):
     try:
         bot = context.bot
         chat_id = update.effective_chat.id
-        print(f"Chat ID: {chat_id}")
         logger.info(f"Chat ID: {chat_id}")
         
         # Keyboard am Anfang setzen
