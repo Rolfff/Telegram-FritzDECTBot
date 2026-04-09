@@ -4,36 +4,51 @@
 import json
 import os
 
-# Globale Config-Instanz und CLI-Parameter
+# Globale Config-Instanz
 _global_config = None
-_cli_config_file = None
 
 class Config:
     def __init__(self, config_file='config.json'):
-        global _global_config, _cli_config_file
-        
-        # Wenn CLI-Parameter gesetzt ist, diesen verwenden
-        if _cli_config_file is not None:
-            config_file = _cli_config_file
+        global _global_config
         
         # Wenn bereits eine globale Config existiert, diese verwenden
         if _global_config is not None:
             self.config_file = _global_config.config_file
             self.config = _global_config.config
             return
-            
+        
+        # Erste Instanz - Konfiguration laden mit Fallback
+        config_data = self._try_load_config(config_file)
+        
+        # Wenn das fehlschlägt, Fallback-Konfiguration aus Home-Verzeichnis laden
+        if config_data is None:
+            fallback_config = os.path.expanduser('~/.fritzdect_config')
+            if os.path.exists(fallback_config):
+                try:
+                    with open(fallback_config, 'r', encoding='utf-8') as f:
+                        config_data = json.load(f)
+                    self.config_file = fallback_config
+                    print(f"Konfiguration aus Fallback-Datei geladen: {fallback_config}")
+                except (json.JSONDecodeError, FileNotFoundError):
+                    config_data = {}
+                    self.config_file = config_file
+            else:
+                config_data = {}
+                self.config_file = config_file
+        else:
+            self.config_file = config_file
+        
         # Erste Instanz - globale Config setzen
-        self.config_file = config_file
-        self.config = self.load_config()
+        self.config = config_data
         _global_config = self
     
-    @staticmethod
-    def set_cli_config_file(config_file):
-        """Setzt den CLI-Config-Parameter global"""
-        global _cli_config_file, _global_config
-        _cli_config_file = config_file
-        # Globale Config zurücksetzen, damit sie neu geladen wird
-        _global_config = None
+    def _try_load_config(self, config_file):
+        """Versucht, eine Konfigurationsdatei zu laden"""
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
     
     def load_config(self):
         try:

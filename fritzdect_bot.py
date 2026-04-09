@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import logging
-import os
 import argparse
 # Telegram Importe mit Fallback für Tests
 try:
@@ -82,18 +81,19 @@ def init_logging():
     
     # Zusätzlicher File-Logger für Debug
     debug_logger = logging.getLogger('debug_logger')
-    debug_logger.setLevel(logging.DEBUG)
+    # Level aus Config verwenden, nicht hart auf DEBUG
+    debug_logger.setLevel(config.get('logging.level', 'DEBUG'))
     
     # File Handler für Debug-Logs
     file_handler = logging.FileHandler('debug.log', mode='w')
-    file_handler.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setLevel(config.get('logging.level', 'DEBUG'))
+    formatter = logging.Formatter(config.get('logging.format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     file_handler.setFormatter(formatter)
     debug_logger.addHandler(file_handler)
     
     # Console Handler für Debug-Logs
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
+    console_handler.setLevel(config.get('logging.level', 'DEBUG'))
     console_handler.setFormatter(formatter)
     debug_logger.addHandler(console_handler)
 
@@ -558,9 +558,6 @@ def main():
                        default='config.json',
                        help='Pfad zur Konfigurationsdatei (Standard: config.json)')
     args = parser.parse_args()
-    
-    # CLI-Parameter global setzen, bevor Config erstellt wird
-    Config.set_cli_config_file(args.config)
     
     # Konfiguration mit übergebenem Pfad initialisieren
     global config, db
