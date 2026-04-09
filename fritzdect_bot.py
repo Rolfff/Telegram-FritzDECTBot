@@ -3,6 +3,7 @@
 
 import logging
 import os
+import argparse
 # Telegram Importe mit Fallback für Tests
 try:
     from telegram import Update, ReplyKeyboardMarkup
@@ -40,8 +41,8 @@ import lib.statistikMode_optimized as StatistikModeOptimized
 import lib.settingsMode as SettingsMode
 import lib.automationMode_optimized as AutomationModeOptimized
 
-# Konfiguration
-config = Config()
+# Konfiguration (wird in main() mit CLI-Argument initialisiert)
+config = None
 db = UserDatabase()
 
 # LoginMode die globale Datenbank-Instanz setzen
@@ -73,10 +74,15 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-# Nur bei Verfügbarkeit der Telegram-Module initialisieren
-if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE:
-    fritzbox = OptimizedFritzBoxAPI()
+# Globale Variablen für Logging
+logger = None
+debug_logger = None
+fritzbox = None
 
+def init_logging():
+    """Initialisiert das Logging-System"""
+    global logger, debug_logger
+    
     # Logging
     logging.basicConfig(**config.get_logging_config())
     logger = logging.getLogger(__name__)
@@ -97,16 +103,15 @@ if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE:
     console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(formatter)
     debug_logger.addHandler(console_handler)
-    
-    logger.info("=== Bot gestartet - Logging aktiviert ===")
-    logger.info(f"Logging-Level: {config.get('logging.level')}")
-    debug_logger.info("=== DEBUG LOG START ===")
-    debug_logger.debug("TEST DEBUG MESSAGE")
-    print("DEBUG LOGGER AKTIVIERT - debug.log wird geschrieben")
-    print("TEST DEBUG MESSAGE GESCHRIEBEN")
-    
-    # Weitere Importe nur bei Verfügbarkeit
-    from lib.adminMode import AdminMode
+
+def init_fritzbox():
+    """Initialisiert die FritzBox API"""
+    global fritzbox
+    fritzbox = OptimizedFritzBoxAPI()
+
+# Nur bei Verfügbarkeit der Telegram-Module initialisieren
+if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE:
+    pass  # Wird in main() nach config-Initialisierung aufgerufen
     import lib.loginMode as LoginMode  # Modul, keine Klasse
     import lib.statistikMode_optimized as StatistikModeOptimized
     from lib.automationMode_optimized import AutomationModeOptimized
@@ -554,6 +559,29 @@ async def async_main():
 
 def main():
     """Hauptfunktion"""
+    # CLI-Argumente parsen
+    parser = argparse.ArgumentParser(description='Telegram FritzDECT Bot')
+    parser.add_argument('-c', '--config', 
+                       default='config.json',
+                       help='Pfad zur Konfigurationsdatei (Standard: config.json)')
+    args = parser.parse_args()
+    
+    # Konfiguration mit übergebenem Pfad initialisieren
+    global config
+    config = Config(args.config)
+    
+    # Logging und FritzBox nach config-Initialisierung
+    if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE:
+        init_logging()
+        init_fritzbox()
+        
+        logger.info("=== Bot gestartet - Logging aktiviert ===")
+        logger.info(f"Logging-Level: {config.get('logging.level')}")
+        debug_logger.info("=== DEBUG LOG START ===")
+        debug_logger.debug("TEST DEBUG MESSAGE")
+        print("DEBUG LOGGER AKTIVIERT - debug.log wird geschrieben")
+        print("TEST DEBUG MESSAGE GESCHRIEBEN")
+    
     try:
         asyncio.run(async_main())
     except KeyboardInterrupt:

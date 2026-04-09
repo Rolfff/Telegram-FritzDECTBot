@@ -11,13 +11,17 @@ class Config:
     
     def load_config(self):
         try:
+            # Absoluten Pfad für bessere Fehlermeldungen
+            abs_path = os.path.abspath(self.config_file)
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except FileNotFoundError:
-            print(f"Konfigurationsdatei {self.config_file} nicht gefunden!")
+            abs_path = os.path.abspath(self.config_file)
+            print(f"Konfigurationsdatei nicht gefunden: {abs_path}")
             return {}
         except json.JSONDecodeError as e:
-            print(f"Fehler beim Lesen der Konfigurationsdatei: {e}")
+            abs_path = os.path.abspath(self.config_file)
+            print(f"Fehler beim Lesen der Konfigurationsdatei {abs_path}: {e}")
             return {}
     
     def get(self, key, default=None):
