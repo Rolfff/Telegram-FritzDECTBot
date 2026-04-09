@@ -4,10 +4,23 @@
 import json
 import os
 
+# Globale Config-Instanz
+_global_config = None
+
 class Config:
     def __init__(self, config_file='config.json'):
+        global _global_config
+        
+        # Wenn bereits eine globale Config existiert, diese verwenden
+        if _global_config is not None:
+            self.config_file = _global_config.config_file
+            self.config = _global_config.config
+            return
+            
+        # Erste Instanz - globale Config setzen
         self.config_file = config_file
         self.config = self.load_config()
+        _global_config = self
     
     def load_config(self):
         try:
