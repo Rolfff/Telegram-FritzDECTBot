@@ -43,14 +43,7 @@ import lib.automationMode_optimized as AutomationModeOptimized
 
 # Konfiguration (wird in main() mit CLI-Argument initialisiert)
 config = None
-db = UserDatabase()
-
-# LoginMode die globale Datenbank-Instanz setzen
-LoginMode.set_database(db)
-# AdminMode die globale Datenbank-Instanz setzen
-AdminMode.set_database(db)
-# SettingsMode die globale Datenbank-Instanz setzen
-SettingsMode.set_database(db)
+db = None
 
 # Textbefehle für MAIN-Status (da modeList[MAIN] = None)
 main_textbefehl = {
@@ -567,8 +560,16 @@ def main():
     args = parser.parse_args()
     
     # Konfiguration mit übergebenem Pfad initialisieren
-    global config
+    global config, db
     config = Config(args.config)
+    
+    # UserDatabase nach config-Initialisierung erstellen
+    db = UserDatabase()
+    
+    # LoginMode die globale Datenbank-Instanz setzen
+    LoginMode.set_database(db)
+    # AdminMode die globale Datenbank-Instanz setzen
+    AdminMode.set_database(db)
     
     # Logging und FritzBox nach config-Initialisierung
     if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE:
