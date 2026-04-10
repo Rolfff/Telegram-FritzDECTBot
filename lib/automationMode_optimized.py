@@ -58,21 +58,48 @@ class OptimizedAutomationManager:
                     reply_markup=user_data['keyboard'])
                 return user_data['status']
             
-            scenarios_text = "Verfügbare Szenarien:\n\n"
+            scenarios_text = "🎯 Verfügbare Szenarien und Vorlagen:\n\n"
             scenarios_found = []
             
-            # Vorlagen als Szenarien interpretieren (optimiert mit Cache)
+            # Vorlagen dynamisch aus der FritzBox laden
             templates = fritz_api.get_templates(use_cache=True)
             if templates:
-                scenarios_text += "Vorlagen (als Szenarien verwendbar):\n"
-                scenarios_text += "🏠 Vorlagen (als Szenarien verwendbar):\n"
-                for template in templates:
-                    # Nur Szenarien anzeigen (mit sub_templates)
-                    if template.sub_templates:
-                        scenarios_found.append(f"• {template.name} (ID: {template.id})")
+                # Nicht automatisch erstellte Vorlagen filtern
+                user_templates = [t for t in templates if not t.autocreate]
+                
+                if user_templates:
+                    scenarios_text += "🏠 **Vorlagen (als Szenarien verwendbar):**\n"
+                    for template in user_templates:
+                        scenarios_found.append(f"{template.name} (ID: {template.id})")
+                        scenarios_text += f"• {template.name} (ID: {template.id})\n"
+                        
+                        # Geräte-Info anzeigen
+                        if template.devices:
+                            device_names = []
+                            for dev in template.devices[:3]:  # Max 3 Geräte anzeigen
+                                if hasattr(dev, 'name'):
+                                    device_names.append(f"{dev.name}")
+                                else:
+                                    device_names.append(f"{dev}")  # Falls dev ein String ist
+                            if len(template.devices) > 3:
+                                device_names.append(f"+{len(template.devices)-3} weitere")
+                            scenarios_text += f"  Geräte: {', '.join(device_names)}\n"
+                        
+                        # ApplyMask anzeigen
+                        if template.applymask:
+                            masks = []
+                            for mask_type in ['hkr_temperature', 'hkr_holidays', 'hkr_time_table', 
+                                             'relay_manual', 'relay_automatic', 'level', 'color']:
+                                if mask_type in template.applymask:
+                                    masks.append(mask_type.replace('_', ' ').title())
+                            if masks:
+                                scenarios_text += f"  Funktionen: {', '.join(masks)}\n"
+                        scenarios_text += "\n"
+                else:
+                    scenarios_text += "🏠 **Vorlagen:** Keine benutzerdefinierten Vorlagen gefunden\n\n"
             
-            # Manuelles Urlaubs-Szenario
-            scenarios_text += "\n🏖️ Urlaubs-Szenarien:\n"
+            # Spezielle Szenarien (Urlaub etc.)
+            scenarios_text += "🏖️ **Spezielle Szenarien:**\n"
             scenarios_text += "• Urlaub aktivieren\n"
             scenarios_text += "• Urlaub deaktivieren\n"
             scenarios_found.extend(["Urlaub aktivieren", "Urlaub deaktivieren"])
@@ -161,20 +188,39 @@ class OptimizedAutomationManager:
             
             # Prüfen ob es ein Button-Klick ist
             if text == "Szenario ausführen":
-                # Inline-Keyboard für Szenario-Auswahl erstellen
+                # Inline-Keyboard für Szenario-Auswahl dynamisch erstellen
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
                 
-                keyboard = [
-                    [InlineKeyboardButton("🏖️ Urlaub aktivieren", callback_data='execute_scenario_Urlaub aktivieren')],
-                    [InlineKeyboardButton("🏠 Urlaub deaktivieren", callback_data='execute_scenario_Urlaub deaktivieren')],
-                    [InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_scenario')]
-                ]
+                keyboard = []
+                
+                # Vorlagen dynamisch aus der FritzBox laden
+                templates = fritz_api.get_templates(use_cache=True)
+                if templates:
+                    # Nicht automatisch erstellte Vorlagen filtern
+                    user_templates = [t for t in templates if not t.autocreate]
+                    
+                    if user_templates:
+                        keyboard.append([InlineKeyboardButton("🏠 **Vorlagen aus der FritzBox:**", 
+                                                               callback_data='no_action')])
+                        for template in user_templates:
+                            # Template-Name für Callback sicher machen
+                            safe_name = template.name.replace(' ', '_').replace('(', '').replace(')', '')
+                            keyboard.append([InlineKeyboardButton(f"🔧 {template.name}", 
+                                                               callback_data=f'execute_template_{template.id}_{safe_name}')])
+                        keyboard.append([InlineKeyboardButton("", callback_data='no_action')])  # Trennlinie
+                
+                # Spezielle Szenarien hinzufügen
+                keyboard.append([InlineKeyboardButton("🏖️ Urlaub aktivieren", 
+                                                       callback_data='execute_scenario_Urlaub aktivieren')])
+                keyboard.append([InlineKeyboardButton("🏠 Urlaub deaktivieren", 
+                                                       callback_data='execute_scenario_Urlaub deaktivieren')])
+                keyboard.append([InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_scenario')])
                 
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await update.message.reply_text(
-                    "🎯 Szenario auswählen:\n\n"
-                    "Wähle das Szenario, das du ausführen möchtest:",
+                    "🎯 **Szenario auswählen:**\n\n"
+                    "Wähle das Szenario oder die Vorlage, die du ausführen möchtest:",
                     reply_markup=reply_markup, parse_mode='Markdown')
                 return user_data['status']
             
@@ -182,26 +228,57 @@ class OptimizedAutomationManager:
             scenario_text = text.replace('/executeScenario ', '').strip()
             
             if not scenario_text or scenario_text == "Szenario ausführen":
-                # Inline-Keyboard für Szenario-Auswahl erstellen
+                # Inline-Keyboard für Szenario-Auswahl dynamisch erstellen
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
                 
-                keyboard = [
-                    [InlineKeyboardButton("🏖️ Urlaub aktivieren", callback_data='execute_scenario_Urlaub aktivieren')],
-                    [InlineKeyboardButton("🏠 Urlaub deaktivieren", callback_data='execute_scenario_Urlaub deaktivieren')],
-                    [InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_scenario')]
-                ]
+                keyboard = []
+                
+                # Vorlagen dynamisch aus der FritzBox laden
+                templates = fritz_api.get_templates(use_cache=True)
+                if templates:
+                    # Nicht automatisch erstellte Vorlagen filtern
+                    user_templates = [t for t in templates if not t.autocreate]
+                    
+                    if user_templates:
+                        keyboard.append([InlineKeyboardButton("🏠 **Vorlagen aus der FritzBox:**", 
+                                                               callback_data='no_action')])
+                        for template in user_templates:
+                            # Template-Name für Callback sicher machen
+                            safe_name = template.name.replace(' ', '_').replace('(', '').replace(')', '')
+                            keyboard.append([InlineKeyboardButton(f"🔧 {template.name}", 
+                                                               callback_data=f'execute_template_{template.id}_{safe_name}')])
+                        keyboard.append([InlineKeyboardButton("", callback_data='no_action')])  # Trennlinie
+                
+                # Spezielle Szenarien hinzufügen
+                keyboard.append([InlineKeyboardButton("�️ Urlaub aktivieren", 
+                                                       callback_data='execute_scenario_Urlaub aktivieren')])
+                keyboard.append([InlineKeyboardButton("🏠 Urlaub deaktivieren", 
+                                                       callback_data='execute_scenario_Urlaub deaktivieren')])
+                keyboard.append([InlineKeyboardButton("❌ Abbrechen", callback_data='cancel_scenario')])
                 
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await update.message.reply_text(
-                    "🎯 Szenario auswählen:\n\n"
-                    "Wähle das Szenario, das du ausführen möchtest:",
+                    "🎯 **Szenario auswählen:**\n\n"
+                    "Wähle das Szenario oder die Vorlage, die du ausführen möchtest:",
                     reply_markup=reply_markup, parse_mode='Markdown')
                 return user_data['status']
             
-            # Szenario ausführen mit optimiertem Manager
+            # Szenario/Vorlage ausführen
             stats_manager = self._get_stats_manager()
-            if "Urlaub aktivieren" in scenario_text:
+            
+            # Prüfen ob es eine Vorlage ist
+            template = fritz_api.get_template_by_name(scenario_text, use_cache=True)
+            if template:
+                # Vorlage ausführen
+                success = fritz_api.apply_template(template.identifier)
+                if success:
+                    await update.message.reply_text(f"✅ Vorlage '{template.name}' erfolgreich ausgeführt",
+                        reply_markup=user_data['keyboard'])
+                else:
+                    await update.message.reply_text(f"❌ Fehler beim Ausführen der Vorlage '{template.name}'",
+                        reply_markup=user_data['keyboard'])
+            elif "Urlaub aktivieren" in scenario_text:
                 result = stats_manager.apply_vacation_template(active=True)
                 if result['success']:
                     await update.message.reply_text("✅ Szenario 'Urlaub aktivieren' erfolgreich ausgeführt",
@@ -218,7 +295,7 @@ class OptimizedAutomationManager:
                     await update.message.reply_text(f"❌ Fehler beim Ausführen des Szenarios: {result['error']}",
                         reply_markup=user_data['keyboard'])
             else:
-                await update.message.reply_text("❌ Unbekanntes Szenario",
+                await update.message.reply_text("❌ Unbekanntes Szenario oder Vorlage",
                     reply_markup=user_data['keyboard'])
                 
         except Exception as e:
@@ -336,29 +413,54 @@ class OptimizedAutomationManager:
         callback_data = query.data
         
         try:
-            if callback_data.startswith('execute_scenario_'):
+            if callback_data.startswith('execute_template_'):
+                # Template-ID und Name für dynamische Vorlagen-Ausführung extrahieren
+                parts = callback_data.replace('execute_template_', '').split('_', 1)
+                if len(parts) >= 2:
+                    template_id = parts[0]
+                    template_safe_name = parts[1]
+                    
+                    fritz_api = self._get_fritz_api()
+                    template = fritz_api.get_template_by_id(template_id, use_cache=True)
+                    if template:
+                        success = fritz_api.apply_template(template.identifier)
+                        
+                        if success:
+                            await query.edit_message_text(f"✅ Vorlage '{template.name}' erfolgreich ausgeführt",
+                                                        reply_markup=None)
+                        else:
+                            await query.edit_message_text(f"❌ Fehler beim Ausführen der Vorlage '{template.name}'",
+                                                        reply_markup=None)
+                    else:
+                        await query.edit_message_text(f"❌ Vorlage nicht gefunden: {template_id}",
+                                                    reply_markup=None)
+                else:
+                    await query.edit_message_text("❌ Ungültiges Template-Format",
+                                                reply_markup=None)
+                    
+            elif callback_data.startswith('execute_scenario_'):
                 scenario_text = callback_data.replace('execute_scenario_', '')
+                stats_manager = self._get_stats_manager()
                 
                 if "Urlaub aktivieren" in scenario_text:
-                    stats_manager = self._get_stats_manager()
                     result = stats_manager.apply_vacation_template(active=True)
                     if result['success']:
                         await query.edit_message_text("✅ Szenario 'Urlaub aktivieren' erfolgreich ausgeführt",
-                                                    reply_markup=user_data['keyboard'])
+                                                    reply_markup=None)
                     else:
                         await query.edit_message_text(f"❌ Fehler: {result['error']}",
-                                                    reply_markup=user_data['keyboard'])
+                                                    reply_markup=None)
                 elif "Urlaub deaktivieren" in scenario_text:
                     result = stats_manager.apply_vacation_template(active=False)
                     if result['success']:
                         await query.edit_message_text("✅ Szenario 'Urlaub deaktivieren' erfolgreich ausgeführt",
-                                                    reply_markup=user_data['keyboard'])
+                                                    reply_markup=None)
                     else:
                         await query.edit_message_text(f"❌ Fehler: {result['error']}",
-                                                    reply_markup=user_data['keyboard'])
+                                                    reply_markup=None)
                 else:
                     await query.edit_message_text("❌ Unbekanntes Szenario",
-                                                reply_markup=user_data['keyboard'])
+                                                reply_markup=None)
                     
             elif callback_data.startswith('apply_template_'):
                 # Template-ID und Name extrahieren
@@ -374,25 +476,29 @@ class OptimizedAutomationManager:
                         
                         if success:
                             await query.edit_message_text(f"✅ Vorlage '{template_name}' erfolgreich angewendet",
-                                                        reply_markup=user_data['keyboard'])
+                                                        reply_markup=None)
                         else:
                             await query.edit_message_text(f"❌ Fehler beim Anwenden der Vorlage '{template_name}'",
-                                                        reply_markup=user_data['keyboard'])
+                                                        reply_markup=None)
                     else:
                         await query.edit_message_text(f"❌ Vorlage nicht gefunden: {template_id}",
-                                                    reply_markup=user_data['keyboard'])
+                                                    reply_markup=None)
                 else:
                     await query.edit_message_text("❌ Ungültiges Template-Format",
-                                                reply_markup=user_data['keyboard'])
+                                                reply_markup=None)
                     
-            elif callback_data == 'cancel_scenario' or callback_data == 'cancel_template':
-                await query.edit_message_text("❌ Aktion abgebrochen",
-                                            reply_markup=user_data['keyboard'])
+            elif callback_data == 'cancel_scenario' or callback_data == 'cancel_template' or callback_data == 'no_action':
+                if callback_data == 'no_action':
+                    # Keine Aktion für Header-Buttons
+                    await query.answer("Keine Aktion")
+                else:
+                    await query.edit_message_text("❌ Aktion abgebrochen",
+                                                reply_markup=None)
                 
         except Exception as e:
             logger.error(f"Fehler in handle_scenario_callback: {e}")
             await query.edit_message_text(f"❌ Fehler: {str(e)}",
-                                        reply_markup=user_data['keyboard'])
+                                        reply_markup=None)
         
         return user_data['status']
     
@@ -400,10 +506,12 @@ class OptimizedAutomationManager:
         """Gibt Callback-Handler für Inline-Keyboards zurück - Framework-konform"""
         return {
             'patterns': [
-                r'execute_scenario_.*',
-                r'apply_template_.*',
-                r'cancel_scenario',
-                r'cancel_template'
+                r'execute_template_.*',  # Für dynamische Vorlagen-Ausführung
+                r'execute_scenario_.*',  # Für spezielle Szenarien (Urlaub etc.)
+                r'apply_template_.*',    # Für Vorlagen-Anwendung
+                r'cancel_scenario',       # Für Abbruch
+                r'cancel_template',       # Für Abbruch
+                r'no_action'              # Für Header-Buttons ohne Aktion
             ],
             'handler': self.handle_scenario_callback
         }
