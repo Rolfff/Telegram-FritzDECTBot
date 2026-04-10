@@ -73,7 +73,7 @@ class AdminMode:
     
     @staticmethod
     def get_callback_handlers():
-        """Gibt die Callback-Handler-Konfiguration zurück"""
+        """Gibt Callback-Handler für Inline-Keyboards zurück"""
         return {
             'patterns': [
                 r'approve_request_.*',
@@ -1148,10 +1148,17 @@ class AdminMode:
             await update.message.reply_text(f'❌ Fehler: {str(e)}', reply_markup=user_data['keyboard'])
             return context.user_data['status']
 
+# Globale Instanz für Framework-Kompatibilität
+admin_manager = AdminMode()
+
 # Funktion auf Modulebene für Kompatibilität
 def set_config(config_instance):
     """Setzt die globale Config-Instanz (Modulebene)"""
     AdminMode.set_config(config_instance)
+
+def get_callback_handlers():
+    """Gibt Callback-Handler für Inline-Keyboards zurück - Framework-konform"""
+    return admin_manager.get_callback_handlers()
 
 # Datenbank-Instanz setzen
 def init_database(database_instance):
