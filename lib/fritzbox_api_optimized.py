@@ -236,10 +236,10 @@ class OptimizedFritzBoxAPI:
                 return response.text.strip()
                 
         except requests.exceptions.RequestException as e:
-            print(f"AHA Command Error ({switchcmd}): {e}")
+            logger.debug(f"AHA Command Error ({switchcmd}): {e}")
             return None
         except Exception as e:
-            print(f"Unexpected Error ({switchcmd}): {e}")
+            logger.debug(f"Unexpected Error ({switchcmd}): {e}")
             return None
     
     def _parse_xml_response(self, command: str, xml_data: str) -> Dict:
@@ -263,7 +263,7 @@ class OptimizedFritzBoxAPI:
                 return {'xml': xml_data}
                 
         except ET.ParseError as e:
-            print(f"XML Parse Error: {e}")
+            logger.debug(f"XML Parse Error: {e}")
             return {'error': f'XML Parse Error: {e}', 'xml': xml_data}
     
     def _parse_device_list(self, root: ET.Element) -> Dict[str, List[DeviceInfo]]:
@@ -659,7 +659,7 @@ class OptimizedFritzBoxAPI:
             blocktime = int(xml.find("BlockTime").text)
             
             if blocktime > 0:
-                print(f"DEBUG: BlockTime aktiv: {blocktime} Sekunden - FritzBox hat Timer gesetzt")
+                logger.debug(f"BlockTime aktiv: {blocktime} Sekunden - FritzBox hat Timer gesetzt")
                 time.sleep(blocktime)
                 return self._try_pbkdf2_login()
             
@@ -749,9 +749,9 @@ class OptimizedFritzBoxAPI:
     def _login_aha_only(self) -> bool:
         """Login nur über AHA-Schnittstelle mit detailliertem Debug-Logging"""
         try:
-            print(f"DEBUG: === AHA-Login gestartet ===")
-            print(f"DEBUG: Host: {self.host}:{self.port}")
-            print(f"DEBUG: Username: {self.username}")
+            logger.debug("=== AHA-Login gestartet ===")
+            logger.debug(f"Host: {self.host}:{self.port}")
+            logger.debug(f"Username: {self.username}")
             
             # Zuerst einfache Verbindungstest
             import socket
@@ -761,15 +761,15 @@ class OptimizedFritzBoxAPI:
             sock.close()
             
             if result != 0:
-                print(f"DEBUG: Verbindung zu {self.host}:{self.port} fehlgeschlagen: {result}")
-                print(f"FEHLER: FritzBox nicht erreichbar - Netzwerkverbindung prüfen!")
+                logger.debug(f"Verbindung zu {self.host}:{self.port} fehlgeschlagen: {result}")
+                logger.error("FritzBox nicht erreichbar - Netzwerkverbindung prüfen!")
                 return False
             
-            print(f"DEBUG: Verbindung zu {self.host}:{self.port} erfolgreich")
+            logger.debug(f"Verbindung zu {self.host}:{self.port} erfolgreich")
             
             # Zuerst versuchen, ob einfache AHA-Schnittstelle funktioniert
             login_url = f"http://{self.host}:{self.port}/login_sid.lua"
-            print(f"DEBUG: Versuche einfachen Login: {login_url}")
+            logger.debug(f"Versuche einfachen Login: {login_url}")
             response = self.session.get(login_url, timeout=30)
             response.raise_for_status()
             xml = ET.fromstring(response.text)
@@ -777,47 +777,47 @@ class OptimizedFritzBoxAPI:
             
             if sid and sid != "0000000000000000":
                 self.sid = sid
-                print(f"DEBUG: Einfacher AHA-Login erfolgreich - SID: {sid}")
+                logger.debug(f"Einfacher AHA-Login erfolgreich - SID: {sid}")
                 return True
             
             # Wenn einfacher Login fehlschlägt, Challenge-Response versuchen
-            print("DEBUG: Einfacher AHA-Login fehlgeschlagen, versuche Challenge-Response...")
+            logger.debug("Einfacher AHA-Login fehlgeschlagen, versuche Challenge-Response...")
             
             # Challenge-Response mit version=2 (PBKDF2) versuchen
             challenge_url = f"http://{self.host}:{self.port}/login_sid.lua?version=2"
-            print(f"DEBUG: Versuche Challenge-Response: {challenge_url}")
+            logger.debug(f"Versuche Challenge-Response: {challenge_url}")
             response = self.session.get(challenge_url, timeout=30)
             response.raise_for_status()
             xml = ET.fromstring(response.text)
             challenge = xml.find("Challenge").text
             blocktime = int(xml.find("BlockTime").text)
             
-            print(f"DEBUG: Challenge erhalten: {challenge}")
-            print(f"DEBUG: BlockTime: {blocktime}")
+            logger.debug(f"Challenge erhalten: {challenge}")
+            logger.debug(f"BlockTime: {blocktime}")
             
             if blocktime > 0:
-                print(f"DEBUG: BlockTime aktiv: {blocktime} Sekunden - warte...")
+                logger.debug(f"BlockTime aktiv: {blocktime} Sekunden - warte...")
                 time.sleep(blocktime)
                 # Erneut versuchen ohne BlockTime-Check
                 return self._login_aha_only()
             
             # Einfache Challenge-Response (ohne komplexe PBKDF2 Berechnung)
             if challenge.startswith("2$"):
-                print("DEBUG: Nutze PBKDF2 Challenge-Response")
+                logger.debug("Nutze PBKDF2 Challenge-Response")
                 # KORREKTE PBKDF2 Berechnung verwenden
                 challenge_response = self._calculate_pbkdf2_response(challenge, self.password)
             else:
-                print("DEBUG: Nutze MD5 Challenge-Response")
+                logger.debug("Nutze MD5 Challenge-Response")
                 challenge_response = self._calculate_md5_response(challenge, self.password)
             
-            print(f"DEBUG: Berechnete Response: {challenge_response}")
+            logger.debug(f"Berechnete Response: {challenge_response}")
             
             # KEINE URL-Encodierung für die Response - das führt zu Fehlern!
             post_data_dict = {"username": self.username, "response": challenge_response}
             headers = {"Content-Type": "application/x-www-form-urlencoded"}
             
-            print(f"DEBUG: Sende POST mit Username: {self.username}")
-            print(f"DEBUG: Response-Length: {len(challenge_response)} Zeichen")
+            logger.debug(f"Sende POST mit Username: {self.username}")
+            logger.debug(f"Response-Length: {len(challenge_response)} Zeichen")
             
             response = self.session.post(challenge_url, data=post_data_dict, headers=headers, timeout=30)
             response.raise_for_status()
@@ -825,23 +825,26 @@ class OptimizedFritzBoxAPI:
             xml = ET.fromstring(response.text)
             sid = xml.find("SID").text
             
-            print(f"DEBUG: Login-Antwort SID: {sid}")
+            logger.debug(f"Login-Antwort SID: {sid}")
             
             if sid and sid != "0000000000000000":
                 self.sid = sid
-                print(f"DEBUG: AHA Challenge-Response Login erfolgreich - SID: {sid}")
+                logger.debug(f"AHA Challenge-Response Login erfolgreich - SID: {sid}")
+                # Cache bei neuem Login löschen
+                with self._cache_lock:
+                    self._cache_timestamp.clear()
                 return True
             else:
-                print(f"DEBUG: AHA Challenge-Response Login fehlgeschlagen - SID: {sid}")
+                logger.debug(f"AHA Challenge-Response Login fehlgeschlagen - SID: {sid}")
                 return False
                 
         except requests.exceptions.RequestException as e:
-            print(f"DEBUG: Netzwerkfehler bei AHA-Login: {e}")
-            print(f"FEHLER: Netzwerkverbindungsproblem - prüfen Sie Verbindung zur FritzBox")
+            logger.debug(f"Netzwerkfehler bei AHA-Login: {e}")
+            logger.error("Netzwerkverbindungsproblem - prüfen Sie Verbindung zur FritzBox")
             return False
         except Exception as e:
-            print(f"DEBUG: Unerwarteter Fehler bei AHA-Login: {e}")
-            print(f"FEHLER: Unerwarteter Fehler - prüfen Sie Logs und versuchen Sie erneut")
+            logger.debug(f"Unerwarteter Fehler bei AHA-Login: {e}")
+            logger.error("Unerwarteter Fehler - prüfen Sie Logs und versuchen Sie erneut")
             return False
     
     def _calculate_simple_pbkdf2_response(self, challenge: str, password: str) -> str:
@@ -872,7 +875,7 @@ class OptimizedFritzBoxAPI:
             return f"{salt2_hex}${hash2.hex()}"
             
         except Exception as e:
-            print(f"DEBUG: Vereinfachte PBKDF2 Berechnung fehlgeschlagen: {e}")
+            logger.debug(f"Vereinfachte PBKDF2 Berechnung fehlgeschlagen: {e}")
             # Fallback zu MD5
             return self._calculate_md5_response(challenge, password)
     
@@ -887,20 +890,20 @@ class OptimizedFritzBoxAPI:
             blocktime = int(xml.find("BlockTime").text)
             
             if blocktime > 0:
-                print(f"DEBUG: BlockTime aktiv: {blocktime} Sekunden - FritzBox hat Sekundensperre aktiviert")
-                print(f"INFO: FritzBox blockiert Login-Versuche für {blocktime} Sekunden")
-                print(f"AKTION: Warte auf Ende der Sperre und versuche erneut...")
+                logger.debug(f"BlockTime aktiv: {blocktime} Sekunden - FritzBox hat Sekundensperre aktiviert")
+                logger.debug(f"FritzBox blockiert Login-Versuche für {blocktime} Sekunden")
+                logger.debug(f"Warte auf Ende der Sperre und versuche erneut...")
                 time.sleep(blocktime)
                 # Nach erfolgreichem PBKDF2 Login, True zurückgeben (nicht _login_aha_only)
             if sid and sid != "0000000000000000":
                 self.sid = sid
-                print(f"DEBUG: PBKDF2 Login erfolgreich, SID: {sid}")
+                logger.debug(f"PBKDF2 Login erfolgreich, SID: {sid}")
                 # Cache bei neuem Login löschen
                 with self._cache_lock:
                     self._cache_timestamp.clear()
                 return True
             else:
-                print(f"DEBUG: PBKDF2 Login fehlgeschlagen, SID: {sid}")
+                logger.debug(f"PBKDF2 Login fehlgeschlagen, SID: {sid}")
                 return False
             
             if challenge.startswith("2$"):
@@ -922,17 +925,17 @@ class OptimizedFritzBoxAPI:
             
             if sid and sid != "0000000000000000":
                 self.sid = sid
-                print(f"DEBUG: PBKDF2 Login erfolgreich, SID: {sid}")
+                logger.debug(f"PBKDF2 Login erfolgreich, SID: {sid}")
                 # Cache bei neuem Login löschen
                 with self._cache_lock:
                     self._cache_timestamp.clear()
                 return True
             else:
-                print(f"DEBUG: PBKDF2 Login fehlgeschlagen, SID: {sid}")
+                logger.debug(f"PBKDF2 Login fehlgeschlagen, SID: {sid}")
                 return False
                 
         except Exception as e:
-            print(f"DEBUG: PBKDF2 Login Fehler: {e}")
+            logger.debug(f"PBKDF2 Login Fehler: {e}")
             return False
     
     def _try_md5_login(self) -> bool:
@@ -946,9 +949,9 @@ class OptimizedFritzBoxAPI:
             blocktime = int(xml.find("BlockTime").text)
             
             if blocktime > 0:
-                print(f"DEBUG: BlockTime aktiv: {blocktime} Sekunden - FritzBox hat Sekundensperre aktiviert")
-                print(f"INFO: FritzBox blockiert Login-Versuche für {blocktime} Sekunden")
-                print(f"AKTION: Warte auf Ende der Sperre und versuche erneut...")
+                logger.debug(f"BlockTime aktiv: {blocktime} Sekunden - FritzBox hat Sekundensperre aktiviert")
+                logger.info(f"FritzBox blockiert Login-Versuche für {blocktime} Sekunden")
+                logger.info(f"Warte auf Ende der Sperre und versuche erneut...")
                 time.sleep(blocktime)
                 return self._try_md5_login()
             
@@ -969,17 +972,17 @@ class OptimizedFritzBoxAPI:
             
             if sid and sid != "0000000000000000":
                 self.sid = sid
-                print(f"DEBUG: MD5 Login erfolgreich, SID: {sid}")
+                logger.debug(f"MD5 Login erfolgreich, SID: {sid}")
                 # Cache bei neuem Login löschen
                 with self._cache_lock:
                     self._cache_timestamp.clear()
                 return True
             else:
-                print(f"DEBUG: MD5 Login fehlgeschlagen, SID: {sid}")
+                logger.debug(f"MD5 Login fehlgeschlagen, SID: {sid}")
                 return False
                 
         except Exception as e:
-            print(f"DEBUG: MD5 Login Fehler: {e}")
+            logger.debug(f"MD5 Login Fehler: {e}")
             return False
     
     # Optimierte High-Level API-Methoden
@@ -1045,7 +1048,7 @@ class OptimizedFritzBoxAPI:
             
             return templates
         except ET.ParseError as e:
-            print(f"XML Parse Error in parse_template_xml: {e}")
+            logger.debug(f"XML Parse Error in parse_template_xml: {e}")
             return []
     
     def get_device_by_ain(self, ain: str, use_cache: bool = True) -> Optional[DeviceInfo]:
@@ -1165,35 +1168,35 @@ class OptimizedFritzBoxAPI:
             sock.close()
             
             if result != 0:
-                print(f"DEBUG: Verbindung zu {self.host}:{self.port} fehlgeschlagen: {result}")
-                print(f"FEHLER: FritzBox nicht erreichbar - Netzwerkverbindung prüfen!")
+                logger.debug(f"Verbindung zu {self.host}:{self.port} fehlgeschlagen: {result}")
+                logger.error("FritzBox nicht erreichbar - Netzwerkverbindung prüfen!")
                 return False
             
-            print(f"DEBUG: Verbindung zu {self.host}:{self.port} erfolgreich")
+            logger.debug(f"Verbindung zu {self.host}:{self.port} erfolgreich")
             
             # Zuerst PBKDF2 (version=2) versuchen
             if self._try_pbkdf2_login():
                 return True
             
-            print("DEBUG: PBKDF2 Login fehlgeschlagen, versuche MD5...")
+            logger.debug("PBKDF2 Login fehlgeschlagen, versuche MD5...")
             # Fallback zu MD5 (version=1)
             if self._try_md5_login():
                 return True
             
             # Alle Login-Methoden fehlgeschlagen
-            print("FEHLER: Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit")
-            print("MÖGLICHE URSACHEN:")
-            print("  1. Falsche Zugangsdaten (Benutzername/Passwort)")
-            print("  2. FritzBox hat Sekundensperre aktiv (warten Sie einige Minuten)")
-            print("  3. Netzwerkverbindungsprobleme")
-            print("  4. FritzBox antwortet nicht (Neustart prüfen)")
+            logger.error("Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit")
+            logger.error("MÖGLICHE URSACHEN:")
+            logger.error("  1. Falsche Zugangsdaten (Benutzername/Passwort)")
+            logger.error("  2. FritzBox hat Sekundensperre aktiv (warten Sie einige Minuten)")
+            logger.error("  3. Netzwerkverbindungsprobleme")
+            logger.error("  4. FritzBox antwortet nicht (Neustart prüfen)")
             return False
                 
         except requests.exceptions.RequestException as e:
-            print(f"DEBUG: Netzwerkfehler bei login: {e}")
-            print(f"FEHLER: Netzwerkverbindungsproblem - prüfen Sie Verbindung zur FritzBox")
+            logger.debug(f"Netzwerkfehler bei login: {e}")
+            logger.error("Netzwerkverbindungsproblem - prüfen Sie Verbindung zur FritzBox")
             return False
         except Exception as e:
-            print(f"DEBUG: Unerwarteter Fehler bei login: {e}")
-            print(f"FEHLER: Unerwarteter Fehler - prüfen Sie Logs und versuchen Sie erneut")
+            logger.debug(f"Unerwarteter Fehler bei login: {e}")
+            logger.error("Unerwarteter Fehler - prüfen Sie Logs und versuchen Sie erneut")
             return False
