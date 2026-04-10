@@ -140,6 +140,12 @@ class UserDatabase:
                 cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN language_code TEXT DEFAULT 'en'")
                 connection.commit()
             
+            # Batterie-Info-Einstellung hinzufügen
+            if 'showBatteryInfo' not in existing_columns:
+                logging.info("Füge Spalte 'showBatteryInfo' hinzu...")
+                cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN showBatteryInfo INTEGER NOT NULL DEFAULT 0")
+                connection.commit()
+            
             # Dynamisch Benachrichtigungs-Spalten aus der Config hinzufügen
             config = Config()
             notifications = config.get_notifications()
@@ -732,6 +738,17 @@ class UserDatabase:
             return False
         finally:
             connection.close()
+    
+    def update_battery_info_setting(self, chat_id, show_battery_info):
+        """Aktualisiert die Batterie-Info-Einstellung eines Benutzers"""
+        sql = f"UPDATE {self.table_name} SET showBatteryInfo = ? WHERE chatID = ?"
+        return self.execute(sql, (1 if show_battery_info else 0, chat_id))
+    
+    def get_battery_info_setting(self, chat_id):
+        """Gibt die Batterie-Info-Einstellung eines Benutzers zurück"""
+        sql = f"SELECT showBatteryInfo FROM {self.table_name} WHERE chatID = ?"
+        result = self.fetch_one(sql, (chat_id,))
+        return bool(result[0]) if result else False
     
     def _save_notification_sent(self, notification_type, now, chat_ids):
         """Speichert, dass eine Benachrichtigung gesendet wurde"""

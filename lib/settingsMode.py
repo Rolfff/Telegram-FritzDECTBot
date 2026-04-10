@@ -54,6 +54,7 @@ def get_callback_handlers():
             r'set_notifyDoorFrontDoor_.*',
             r'set_notifyTemperatureWarning_.*',
             r'set_notifyBurglarAlarm_.*',
+            r'set_battery_info_.*',
             r'back_to_notifications_.*',
             r'cancel_language_.*',
             r'back_settings_.*'
@@ -261,6 +262,14 @@ async def notifications(update, context, user_data, markupList):
             callback_data=f'select_burglar_{chat_id}'
         )])
         
+        # Batterie-Info-Einstellung
+        battery_setting = db.get_battery_info_setting(chat_id)
+        battery_status = "✅ Immer" if battery_setting else "🔕 Nur bei niedrigem Stand"
+        keyboard.append([InlineKeyboardButton(
+            f"🔋 Batterie-Info: {battery_status}", 
+            callback_data=f'set_battery_info_{chat_id}'
+        )])
+        
         # Zurück-Button
         keyboard.append([InlineKeyboardButton("🔙 Zurück", callback_data=f'back_settings_{chat_id}')])
         
@@ -271,8 +280,8 @@ async def notifications(update, context, user_data, markupList):
             "Wähle für jeden Benachrichtigungstyp deinen gewünschten Modus:\n\n"
             "✅ = Aktuell eingestellt\n"
             "🔕 Keine Benachrichtigung\n"
-            "📱 Push-Nachricht\n"
-            "📞 Anruf + Push",
+            "🔔 Stille Benachrichtigung\n"
+            "📱 Push-Nachricht\n",
             reply_markup=reply_markup
         )
         
@@ -443,6 +452,24 @@ async def handle_settings_callback(update, context, user_data, markupList):
                 icon = mode_info.get('icon', '')
                 desc = mode_info.get('description', mode)
                 await query.edit_message_text(f"✅ Einbruch-Benachrichtigung: {icon} {desc}")
+            else:
+                await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
+                
+        elif callback_data.startswith('set_battery_info_'):
+            # Batterie-Info-Einstellung umschalten
+            current_setting = db.get_battery_info_setting(user_id)
+            new_setting = not current_setting
+            
+            if db is None:
+                print("ERROR: Database instance is None!")
+                await query.edit_message_text("❌ Datenbank nicht verfügbar")
+                return user_data['status']
+            
+            success = db.update_battery_info_setting(user_id, new_setting)
+            
+            if success:
+                status_text = "✅ Immer anzeigen" if new_setting else "🔕 Nur bei niedrigem Stand"
+                await query.edit_message_text(f"🔋 Batterie-Info: {status_text}")
             else:
                 await query.edit_message_text("❌ Einstellung konnte nicht gespeichert werden")
                 

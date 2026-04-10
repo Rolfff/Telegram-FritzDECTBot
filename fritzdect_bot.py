@@ -483,12 +483,15 @@ async def async_main():
     
     application.add_handler(conv_handler)
     
+    # Status command handler
+    application.add_handler(CommandHandler("status", lambda update, context: StatistikModeOptimized.default(update, context, context.user_data, markupList)))
+    
     # Help command handler
     application.add_handler(CommandHandler("help", help_command))
     
     # Help command als Fallback für unbekannte Befehle (nach Admin-Handler)
     # NUR für Commands, nicht für Button-Texte
-    application.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex(r'^(start|help|admin|logout|heizung|automation|einstellungen)$'), help_command))
+    application.add_handler(MessageHandler(filters.COMMAND & ~filters.Regex(r'^(start|help|admin|logout|heizung|automation|einstellungen|status)$'), help_command))
     
     # Callback handler für Inline-Keyboards
     logger.debug("Registriere Callback-Handler...")

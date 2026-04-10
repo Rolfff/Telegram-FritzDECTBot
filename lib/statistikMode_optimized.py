@@ -833,6 +833,11 @@ async def status(update, context, user_data, markupList):
         
         context.user_data['status'] = STATISTICS
         
+        # User-Einstellung für Batterie-Info holen
+        from lib.user_database import UserDatabase
+        db = UserDatabase()
+        show_battery_info = db.get_battery_info_setting(chat_id)
+        
         # Hilfsfunktion nutzen um Urlaubsstatus zu prüfen
         vacation_status = is_vacation_active()
         
@@ -935,6 +940,7 @@ async def status(update, context, user_data, markupList):
             name = heater.name
             ain = heater.ain
             thermostat = heater.thermostat
+            # logger.debug(f"Verarbeite Heizkörper: {name} (AIN: {ain})")
             
             # Temperaturen umrechnen (Werte sind in 0.5°C Schritten)
             tist_value = thermostat.get('tist')
@@ -1043,6 +1049,29 @@ async def status(update, context, user_data, markupList):
                 # Fenster-offen Information hinzufügen
                 if window_info:
                     message += window_info
+                
+                # Batterie-Status prüfen
+                battery_low = thermostat.get('batterylow', '0')
+                battery_level = heater.battery.get('battery') if heater.battery else None
+                battery_info = ""
+                
+                # Nur anzeigen wenn User-Einstellung aktiv ist ODER Batterie schwach ist
+                should_show_battery = show_battery_info or (battery_low == '1' or (battery_level and int(battery_level) < 20))
+                
+                if should_show_battery:
+                    if battery_low == '1':
+                        if battery_level:
+                            battery_info = f"   🔋⚠️ Batterie schwach ({battery_level}%)\n"
+                        else:
+                            battery_info = f"   🔋⚠️ Batterie schwach\n"
+                    elif battery_level:
+                        battery_info = f"   🔋 Batterie: {battery_level}%\n"
+                    else:
+                        battery_info = f"   🔋 Batterie: N/A\n"
+                
+                # Batterie-Information hinzufügen
+                if battery_info:
+                    message += battery_info
             else:
                 message += f"❓{window_icon}{lock_icon} *{name}*\n"
                 message += f"   Aktuell: N/A\n"
@@ -1055,6 +1084,29 @@ async def status(update, context, user_data, markupList):
                 # Fenster-offen Information auch bei N/A Temperaturen
                 if window_info:
                     message += window_info
+                
+                # Batterie-Status auch bei N/A Temperaturen prüfen
+                battery_low = thermostat.get('batterylow', '0')
+                battery_level = heater.battery.get('battery') if heater.battery else None
+                battery_info = ""
+                
+                # Nur anzeigen wenn User-Einstellung aktiv ist ODER Batterie schwach ist
+                should_show_battery = show_battery_info or (battery_low == '1' or (battery_level and int(battery_level) < 20))
+                
+                if should_show_battery:
+                    if battery_low == '1':
+                        if battery_level:
+                            battery_info = f"   🔋⚠️ Batterie schwach ({battery_level}%)\n"
+                        else:
+                            battery_info = f"   🔋⚠️ Batterie schwach\n"
+                    elif battery_level:
+                        battery_info = f"   🔋 Batterie: {battery_level}%\n"
+                    else:
+                        battery_info = f"   🔋 Batterie: N/A\n"
+                
+                # Batterie-Information hinzufügen
+                if battery_info:
+                    message += battery_info
         
         if hasattr(update.message, 'reply_text'):
             if TELEGRAM_AVAILABLE and ReplyKeyboardMarkup:
