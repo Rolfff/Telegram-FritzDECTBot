@@ -74,11 +74,19 @@ nano config.json  # oder dein Lieblings-Editor
 ### 3. Bot starten
 
 ```bash
-# Bot starten
+# Bot starten mit Standard-Konfiguration (config.json)
 python3 fritzdect_bot.py
 
-# Optional: API parallel starten (anderes Terminal)
+# Bot mit eigener Konfigurationsdatei
+python3 fritzdect_bot.py -c /pfad/zur/config.json
+python3 fritzdect_bot.py --config meine_config.json
+
+# API starten mit Standard-Konfiguration (config.json)
 python3 notification_api.py
+
+# API mit eigener Konfigurationsdatei
+python3 notification_api.py -c /pfad/zur/config.json
+python3 notification_api.py --config meine_config.json
 ```
 
 ## 👥 User-Management Workflow
@@ -275,6 +283,136 @@ lib/newMode.py
 # Debug-Logging aktivieren
 export LOG_LEVEL=DEBUG
 python3 fritzdect_bot.py
+```
+
+## systemd Service Konfiguration
+
+Für den produktiven Betrieb können beide Scripts als systemd Services eingerichtet werden:
+
+### 1. Service-Dateien erstellen
+
+**Bot Service (`/etc/systemd/system/fritzdect-bot.service`):**
+```ini
+[Unit]
+Description=FritzDECT Telegram Bot
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=fritzdect
+Group=fritzdect
+WorkingDirectory=/opt/fritzdect-bot
+ExecStart=/usr/bin/python3 /opt/fritzdect-bot/fritzdect_bot.py -c /opt/fritzdect-bot/config.json
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fritzdect-bot
+
+# Umgebungsvariablen
+Environment=PYTHONUNBUFFERED=1
+Environment=LOG_LEVEL=INFO
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**API Service (`/etc/systemd/system/fritzdect-api.service`):**
+```ini
+[Unit]
+Description=FritzDECT Notification API
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=fritzdect
+Group=fritzdect
+WorkingDirectory=/opt/fritzdect-bot
+ExecStart=/usr/bin/python3 /opt/fritzdect-bot/notification_api.py -c /opt/fritzdect-bot/config.json
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fritzdect-api
+
+# Umgebungsvariablen
+Environment=PYTHONUNBUFFERED=1
+Environment=LOG_LEVEL=INFO
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 2. Benutzer und Verzeichnisse einrichten
+
+```bash
+# Systembenutzer erstellen
+sudo useradd -r -s /bin/false -d /opt/fritzdect-bot fritzdect
+
+# Verzeichnis erstellen und Berechtigungen setzen
+sudo mkdir -p /opt/fritzdect-bot
+sudo chown fritzdect:fritzdect /opt/fritzdect-bot
+
+# Projekt kopieren
+sudo cp -r /home/joe/Dokumente/Telegram-FritzDECTBot/* /opt/fritzdect-bot/
+sudo chown -R fritzdect:fritzdect /opt/fritzdect-bot
+
+# Config-Datei anpassen
+sudo nano /opt/fritzdect-bot/config.json
+```
+
+### 3. Services aktivieren und starten
+
+```bash
+# Services neu laden
+sudo systemctl daemon-reload
+
+# Services aktivieren (Autostart)
+sudo systemctl enable fritzdect-bot.service
+sudo systemctl enable fritzdect-api.service
+
+# Services starten
+sudo systemctl start fritzdect-bot.service
+sudo systemctl start fritzdect-api.service
+
+# Status prüfen
+sudo systemctl status fritzdect-bot.service
+sudo systemctl status fritzdect-api.service
+
+# Logs ansehen
+sudo journalctl -u fritzdect-bot -f
+sudo journalctl -u fritzdect-api -f
+```
+
+### 4. Service-Management
+
+```bash
+# Services stoppen
+sudo systemctl stop fritzdect-bot.service
+sudo systemctl stop fritzdect-api.service
+
+# Services neustarten
+sudo systemctl restart fritzdect-bot.service
+sudo systemctl restart fritzdect-api.service
+
+# Services deaktivieren
+sudo systemctl disable fritzdect-bot.service
+sudo systemctl disable fritzdect-api.service
+```
+
+### 5. Konfiguration mit mehreren Config-Dateien
+
+Falls unterschiedliche Konfigurationen benötigt werden:
+
+```bash
+# Mit alternativer Config-Datei
+ExecStart=/usr/bin/python3 /opt/fritzdect-bot/fritzdect_bot.py -c /opt/fritzdect-bot/production.json
+
+# Oder mit Umgebungsvariable
+Environment=CONFIG_FILE=/opt/fritzdect-bot/production.json
+ExecStart=/usr/bin/python3 /opt/fritzdect-bot/fritzdect_bot.py -c ${CONFIG_FILE}
 ```
 
 ## 🐛 Fehlerbehebung

@@ -4,6 +4,7 @@
 import logging
 import json
 import asyncio
+import argparse
 from datetime import datetime
 from flask import Flask, request, jsonify
 from lib.config import Config
@@ -24,8 +25,8 @@ except ImportError:
 app = Flask(__name__)
 
 class NotificationAPI:
-    def __init__(self):
-        self.config = Config()
+    def __init__(self, config_file='config.json'):
+        self.config = Config(config_file)
         self.db = UserDatabase()
         
         # Logging konfigurieren
@@ -166,8 +167,8 @@ class NotificationAPI:
         
         return False, f"Kein gültiger Benachrichtigungstyp gefunden. Erlaubt: {list(notifications.keys())}"
 
-# API-Instanz erstellen
-notification_api = NotificationAPI()
+# API-Instanz wird in main() erstellt
+notification_api = None
 
 @app.route('/notify', methods=['POST'])
 def notify():
@@ -275,13 +276,25 @@ def status():
             'error': str(e)
         }), 500
 
-if __name__ == '__main__':
+def main():
+    """Main-Funktion mit CLI-Argument-Verarbeitung"""
+    global notification_api
+    
+    # CLI-Argumente parsen
+    parser = argparse.ArgumentParser(description='Telegram FritzDECT Bot Notification API')
+    parser.add_argument('-c', '--config', default='config.json', 
+                       help='Pfad zur Konfigurationsdatei (Standard: config.json)')
+    args = parser.parse_args()
+    
+    # API-Instanz mit Config-Parameter erstellen
+    notification_api = NotificationAPI(args.config)
+    
     # Konfiguration laden
-    config = Config()
-    port = config.get_api_port()
+    port = notification_api.config.get_api_port()
     
     logging.info(f"Starte Notification API auf Port {port}")
-    logging.info(f"Erlaubte IPs: {config.get_allowed_fritzbox_ips()}")
+    logging.info(f"Config-Datei: {args.config}")
+    logging.info(f"Erlaubte IPs: {notification_api.config.get_allowed_fritzbox_ips()}")
     logging.info(f"Health-Check: http://localhost:{port}/health")
     logging.info(f"Status: http://localhost:{port}/status")
     logging.info(f"Benachrichtigung: http://localhost:{port}/notify?DoorPowerMeter=1")
@@ -292,3 +305,6 @@ if __name__ == '__main__':
         port=port,
         debug=False
     )
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,22 @@
+[Unit]
+Description=FritzDECT Notification API
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=fritzdect
+Group=fritzdect
+WorkingDirectory=/opt/fritzdect-bot
+ExecStart=/usr/bin/python3 /opt/fritzdect-bot/notification_api.py -c /opt/fritzdect-bot/config.json
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fritzdect-api
+
+# Umgebungsvariablen
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
