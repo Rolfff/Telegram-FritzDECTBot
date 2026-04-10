@@ -55,6 +55,25 @@ class TemplateInfo:
     metadata: Optional[Dict] = None
     sub_templates: Optional[List[str]] = None
     triggers: Optional[List[str]] = None
+    
+    @property
+    def is_template(self) -> bool:
+        """Prüft ob dies eine einfache Vorlage ist"""
+        return (not self.autocreate and 
+                len(self.devices) > 0 and 
+                not self.is_scenario)
+    
+    @property
+    def is_scenario(self) -> bool:
+        """Prüft ob dies ein Szenario ist (mehrere Vorlagen oder Trigger)"""
+        return (self.sub_templates is not None and len(self.sub_templates) > 0) or \
+               (self.triggers is not None and len(self.triggers) > 0)
+    
+    @property
+    def is_vacation_scenario(self) -> bool:
+        """Prüft ob dies ein Urlaubsszenario ist"""
+        return ("urlaub" in self.name.lower() or 
+                "vacation" in self.name.lower())
 
 class OptimizedFritzBoxAPI:
     """
@@ -1078,10 +1097,42 @@ class OptimizedFritzBoxAPI:
     def get_template_by_id(self, template_id: str, use_cache: bool = True) -> Optional[TemplateInfo]:
         """Holt eine spezifische Vorlage per ID"""
         templates = self.get_templates(use_cache=use_cache)
+        # Normalize template_id by stripping whitespace
+        normalized_id = str(template_id).strip()
         for template in templates:
-            if template.id == template_id:
+            # Normalize stored template.id as well for robust comparison
+            stored_id = str(template.id).strip()
+            if stored_id == normalized_id:
                 return template
         return None
+    
+    def get_templates_only(self, use_cache: bool = True) -> List[TemplateInfo]:
+        """Holt nur echte Vorlagen (keine Szenarien oder Auto-Create)"""
+        templates = self.get_templates(use_cache=use_cache)
+        return [t for t in templates if t.is_template]
+    
+    def get_scenarios_only(self, use_cache: bool = True) -> List[TemplateInfo]:
+        """Holt nur Szenarien (Vorlagen mit Sub-Templates oder Triggern)"""
+        templates = self.get_templates(use_cache=use_cache)
+        return [t for t in templates if t.is_scenario]
+    
+    def get_vacation_scenarios(self, use_cache: bool = True) -> List[TemplateInfo]:
+        """Holt nur Urlaubsszenarien"""
+        templates = self.get_templates(use_cache=use_cache)
+        return [t for t in templates if t.is_vacation_scenario]
+    
+    def classify_automation_type(self, template: TemplateInfo) -> str:
+        """Klassifiziert den Typ der Automatisierung"""
+        if template.is_vacation_scenario:
+            return "vacation_scenario"
+        elif template.is_scenario:
+            return "scenario"
+        elif template.is_template:
+            return "template"
+        elif template.autocreate:
+            return "auto_template"
+        else:
+            return "unknown"
     
     def set_temperature(self, ain: str, temperature: float) -> bool:
         """Setzt HKR-Solltemperatur gemäß Dokumentation"""
