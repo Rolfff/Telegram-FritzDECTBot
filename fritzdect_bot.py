@@ -99,8 +99,13 @@ def init_logging():
 
 def init_fritzbox():
     """Initialisiert die FritzBox API"""
-    global fritzbox
-    fritzbox = OptimizedFritzBoxAPI()
+    global fritzbox, config
+    try:
+        fritzbox = OptimizedFritzBoxAPI(config)
+        logger.info(f"FritzBox API initialisiert mit Host: {fritzbox.host}:{fritzbox.port}")
+    except ValueError as e:
+        logger.error(f"FATAL bei FritzBox Initialisierung: {str(e)}")
+        raise
 
 # Nur bei Verfügbarkeit der Telegram-Module initialisieren
 if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE:
@@ -568,8 +573,12 @@ def main():
     
     # LoginMode die globale Datenbank-Instanz setzen
     LoginMode.set_database(db)
-    # AdminMode die globale Datenbank-Instanz setzen
+    # AdminMode die globale Datenbank- und Config-Instanz setzen
     AdminMode.set_database(db)
+    AdminMode.set_config(config)
+    # SettingsMode die globale Datenbank-Instanz setzen
+    from lib.settingsMode import set_database as settings_set_database
+    settings_set_database(db)
     
     # Logging und FritzBox nach config-Initialisierung
     if TELEGRAM_AVAILABLE and TELEGRAM_EXT_AVAILABLE:
@@ -586,7 +595,7 @@ def main():
     try:
         asyncio.run(async_main())
     except KeyboardInterrupt:
-        logging.info("Bot beendet.")
+        logging.warning("Bot beendet.")
     except Exception as e:
         logging.error(f"Fehler: {e}")
 

@@ -80,13 +80,47 @@ class OptimizedFritzBoxAPI:
     FUNCTION_BLIND = 262144
     FUNCTION_HUMIDITY = 1048576
     
-    def __init__(self):
-        self.config = Config()
+    def __init__(self, config=None):
+        # Verwende übergebene Config oder globale Instanz
+        if config is not None:
+            self.config = config
+        else:
+            # Versuche, die globale Config aus dem Bot zu holen
+            try:
+                import sys
+                import os
+                # Finde die Konfigurationsdatei aus sys.argv
+                config_file = None
+                if len(sys.argv) > 1:
+                    for i, arg in enumerate(sys.argv):
+                        if arg == '-c' and i + 1 < len(sys.argv):
+                            config_file = sys.argv[i + 1]
+                            break
+                
+                if config_file and os.path.exists(config_file):
+                    self.config = Config(config_file)
+                else:
+                    self.config = Config()
+            except Exception:
+                self.config = Config()
+        
         self.fritz_config = self.config.get_fritzbox_config()
-        self.host = self.fritz_config.get('host', '192.168.178.1')
-        self.port = self.fritz_config.get('port', 80)
-        self.username = self.fritz_config.get('username', '')
-        self.password = self.fritz_config.get('password', '')
+        
+        # Entferne Default-Werte - löse Error aus wenn nicht vorhanden
+        self.host = self.fritz_config.get('host')
+        self.port = self.fritz_config.get('port')
+        self.username = self.fritz_config.get('username')
+        self.password = self.fritz_config.get('password')
+        
+        # Error wenn notwendige Konfiguration fehlt
+        if not self.host:
+            raise ValueError("FATAL: 'host' nicht in Konfiguration gefunden! Bitte überprüfe deine config.json")
+        if not self.username:
+            raise ValueError("FATAL: 'username' nicht in Konfiguration gefunden! Bitte überprüfe deine config.json")
+        if not self.password:
+            raise ValueError("FATAL: 'password' nicht in Konfiguration gefunden! Bitte überprüfe deine config.json")
+        if self.port is None:
+            raise ValueError("FATAL: 'port' nicht in Konfiguration gefunden! Bitte überprüfe deine config.json")
         self.session = requests.Session()
         self.sid = None
         

@@ -1,5 +1,6 @@
 import logging
 import datetime as DT
+import traceback
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from lib.config import ADMIN, MAIN
 
@@ -42,15 +43,26 @@ class AdminMode:
     tastertur = tastertur
     textbefehl = textbefehl
     db = None
+    config = None
+    
+    @staticmethod
+    def set_config(config_instance):
+        """Setzt die globale Config-Instanz"""
+        AdminMode.config = config_instance
     
     @classmethod
     def get_database(cls):
         """Gibt die Datenbank-Instanz zurück, initialisiert bei Bedarf"""
         if cls.db is None:
             logger.warning("AdminMode.db ist None, initialisiere neu...")
-            from lib.user_database import UserDatabase
-            cls.db = UserDatabase()
-            logger.info(f"AdminMode.db neu initialisiert: {cls.db}")
+            try:
+                from lib.user_database import UserDatabase
+                cls.db = UserDatabase()
+                logger.info(f"AdminMode.db neu initialisiert: {cls.db}")
+            except Exception as e:
+                logger.error(f"FEHLER bei der Datenbank-Initialisierung: {str(e)}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                raise
         return cls.db
     
     @classmethod
@@ -189,26 +201,55 @@ class AdminMode:
         logger.debug("AdminMode.show_config aufgerufen")
         
         try:
-            # Konfigurationsdatei suchen und laden
+            # Versuchen, die Konfigurationsdatei aus verschiedenen Quellen zu finden
             config_file = None
-            possible_paths = [
-                'config.json',
-                'config.example.json',
-                os.path.expanduser('~/.fritzdect_bot/config.json'),
-                '/etc/fritzdect_bot/config.json'
-            ]
-            
             config_data = None
-            for path in possible_paths:
-                if os.path.exists(path):
-                    config_file = path
-                    try:
-                        with open(path, 'r', encoding='utf-8') as f:
-                            config_data = json.load(f)
-                        break
-                    except (json.JSONDecodeError, IOError) as e:
-                        logger.warning(f"Konnte Konfigurationsdatei {path} nicht lesen: {e}")
-                        continue
+            
+            # 1. Aus AdminMode.config (wird vom Bot gesetzt)
+            if AdminMode.config:
+                config_file = getattr(AdminMode.config, 'config_file', None)
+                config_data = getattr(AdminMode.config, 'config', None)
+                logger.debug(f"AdminMode.config gefunden: config_file={config_file}")
+            
+            # 2. Aus sys.argv (Kommandozeilenargumente des Bots)
+            if config_file is None or config_data is None:
+                import sys
+                if len(sys.argv) > 1:
+                    for i, arg in enumerate(sys.argv):
+                        if arg == '-c' and i + 1 < len(sys.argv):
+                            config_file = sys.argv[i + 1]
+                            logger.debug(f"Config-Datei aus sys.argv gefunden: {config_file}")
+                            if os.path.exists(config_file):
+                                try:
+                                    with open(config_file, 'r', encoding='utf-8') as f:
+                                        config_data = json.load(f)
+                                    break
+                                except (json.JSONDecodeError, IOError) as e:
+                                    logger.error(f"FEHLER beim Lesen der Konfigurationsdatei {config_file}: {str(e)}")
+                                    logger.error(f"Traceback: {traceback.format_exc()}")
+                                    config_file = None
+                            break
+            
+            # 3. Fallback: Manuelles Suchen
+            if config_file is None or config_data is None:
+                possible_paths = [
+                    'config.json',
+                    'config.example.json',
+                    os.path.expanduser('~/.fritzdect_bot/config.json'),
+                    '/etc/fritzdect_bot/config.json'
+                ]
+                
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        config_file = path
+                        try:
+                            with open(path, 'r', encoding='utf-8') as f:
+                                config_data = json.load(f)
+                            break
+                        except (json.JSONDecodeError, IOError) as e:
+                            logger.error(f"FEHLER beim Lesen der Konfigurationsdatei {path}: {str(e)}")
+                            logger.error(f"Traceback: {traceback.format_exc()}")
+                            continue
             
             if config_data is None:
                 config_text = (
@@ -219,7 +260,7 @@ class AdminMode:
                     f"• config.example.json\n"
                     f"• ~/.fritzdect_bot/config.json\n"
                     f"• /etc/fritzdect_bot/config.json\n\n"
-                    f"📊 **Datenbank:** {'✅ Aktiv' if AdminMode.db else '❌ Inaktiv'}\n"
+                    f"📊 **Datenbank:** {'✅ Aktiv' if AdminMode.get_database() else '❌ Inaktiv'}\n"
                     f"🔐 **Admin-Modus:** ✅ Aktiv\n"
                     f"🤖 **Bot-Status:** ✅ Online\n"
                     f"📅 **Server-Zeit:** {DT.datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
@@ -311,7 +352,7 @@ class AdminMode:
                 config_text = (
                     f"⚙️ **Bot-Konfiguration:**\n\n"
                     f"📄 **Datei:** {config_file}\n"
-                    f"📊 **Datenbank:** {'✅ Aktiv' if AdminMode.db else '❌ Inaktiv'}\n"
+                    f"📊 **Datenbank:** {'✅ Aktiv' if AdminMode.get_database() else '❌ Inaktiv'}\n"
                     f"🔐 **Admin-Modus:** ✅ Aktiv\n"
                     f"🤖 **Bot-Status:** ✅ Online\n"
                     f"📅 **Server-Zeit:** {DT.datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n\n"
@@ -334,7 +375,7 @@ class AdminMode:
             error_text = (
                 f"❌ **Fehler beim Laden der Konfiguration:**\n\n"
                 f"🔍 Fehler: {str(e)}\n"
-                f"📊 **Datenbank:** {'✅ Aktiv' if AdminMode.db else '❌ Inaktiv'}\n"
+                f"📊 **Datenbank:** {'✅ Aktiv' if AdminMode.get_database() else '❌ Inaktiv'}\n"
                 f"🔐 **Admin-Modus:** ✅ Aktiv\n"
                 f"🤖 **Bot-Status:** ✅ Online\n"
                 f"📅 **Server-Zeit:** {DT.datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
@@ -1106,6 +1147,11 @@ class AdminMode:
         except Exception as e:
             await update.message.reply_text(f'❌ Fehler: {str(e)}', reply_markup=user_data['keyboard'])
             return context.user_data['status']
+
+# Funktion auf Modulebene für Kompatibilität
+def set_config(config_instance):
+    """Setzt die globale Config-Instanz (Modulebene)"""
+    AdminMode.set_config(config_instance)
 
 # Datenbank-Instanz setzen
 def init_database(database_instance):

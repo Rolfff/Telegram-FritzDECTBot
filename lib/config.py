@@ -3,19 +3,21 @@
 
 import json
 import os
+import logging
 
 # Globale Config-Instanz
 _global_config = None
 
 class Config:
     def __init__(self, config_file='config.json'):
-        global _global_config
+        # Globale Config-Instanz deaktiviert - immer neue Instanz erstellen
         
-        # Wenn bereits eine globale Config existiert, diese verwenden
-        if _global_config is not None:
-            self.config_file = _global_config.config_file
-            self.config = _global_config.config
-            return
+        # Konfigurationsdatei-Pfad auflösen
+        if not os.path.isabs(config_file):
+            # Pfad relativ zum Verzeichnis dieser Datei (lib/config.py)
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            config_file = os.path.join(script_dir, '..', config_file)
+            config_file = os.path.abspath(config_file)
         
         # Erste Instanz - Konfiguration laden mit Fallback
         config_data = self._try_load_config(config_file)
@@ -38,9 +40,8 @@ class Config:
         else:
             self.config_file = config_file
         
-        # Erste Instanz - globale Config setzen
+        # Config setzen
         self.config = config_data
-        _global_config = self
     
     def _try_load_config(self, config_file):
         """Versucht, eine Konfigurationsdatei zu laden"""

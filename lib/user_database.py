@@ -4,6 +4,7 @@
 import os
 import sqlite3
 import datetime as DT
+import logging
 from sqlite3 import Error
 from lib.config import Config
 
@@ -13,6 +14,13 @@ class UserDatabase:
         self.db_config = self.config.get_database_config()
         self.db_path = self.db_config.get('path', 'database/userdata.db')
         self.table_name = self.db_config.get('table', 'users')
+        
+        # Datenbankpfad auflösen
+        if not os.path.isabs(self.db_path):
+            # Pfad relativ zum Verzeichnis dieser Datei (lib/user_database.py)
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            self.db_path = os.path.join(script_dir, '..', self.db_path)
+            self.db_path = os.path.abspath(self.db_path)
         
         # Existenz der Datenbank überprüfen und ggf. diese anlegen
         if not os.path.exists(self.db_path):
