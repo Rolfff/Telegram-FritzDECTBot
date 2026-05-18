@@ -766,7 +766,7 @@ async def set_temp(update, context, user_data, markupList):
             # Next-Change Information holen
             next_change_info = stats_manager.get_next_temperature_change(ain)
             
-            if tist is not None and tsoll is not None:
+            if tist is not None and tsoll is not None and tist != '' and tsoll != '':
                 current_temp = int(tist) / 2
                 target_temp = int(tsoll) / 2
                 temp_info = f" ({current_temp:.1f}°C → {target_temp:.1f}°C"
@@ -992,7 +992,7 @@ async def status(update, context, user_data, markupList):
                     window_info = "   🪟 Fenster-Offen: Aktiv\n"
             
             # None-Werte behandeln - wenn keine Temperatur verfügbar, zeige "N/A"
-            if tist_value is not None and tsoll_value is not None:
+            if tist_value is not None and tsoll_value is not None and tist_value != '' and tsoll_value != '':
                 current_temp = int(tist_value) / 2
                 
                 # Solltemperatur korrekt interpretieren
@@ -1976,7 +1976,7 @@ async def window_open_mode(update, context, user_data, markupList):
             tist_value = thermostat.get('tist')
             tsoll_value = thermostat.get('tsoll')
             
-            if tist_value is not None and tsoll_value is not None:
+            if tist_value is not None and tsoll_value is not None and tist_value != '' and tsoll_value != '':
                 current_temp = int(tist_value) / 2
                 
                 # Solltemperatur korrekt interpretieren
