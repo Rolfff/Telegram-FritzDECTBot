@@ -25,6 +25,9 @@ MANIFEST
 venv/
 env/
 ENV/
+bin/
+lib/python*/
+share/
 
 # IDE
 .vscode/
