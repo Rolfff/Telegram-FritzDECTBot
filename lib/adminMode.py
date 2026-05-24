@@ -3,6 +3,7 @@ import datetime as DT
 import traceback
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from lib.config import ADMIN, MAIN
+from lib.telegram_utils import retry_telegram_call
 
 # Globale Variable für Datenbank
 db = None
@@ -188,8 +189,11 @@ class AdminMode:
                     reply_markup=user_data['keyboard']
                 )
         except Exception as e:
-            await update.message.reply_text(f"Fehler beim Abrufen des Requests: {str(e)}",
-                reply_markup=user_data['keyboard'])
+            await retry_telegram_call(
+                update.message.reply_text,
+                f"Fehler beim Abrufen des Requests: {str(e)}",
+                reply_markup=user_data['keyboard']
+            )
         return context.user_data['status']
     
     @staticmethod

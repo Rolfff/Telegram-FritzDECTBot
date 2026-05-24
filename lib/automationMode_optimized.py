@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 from lib.fritzbox_api_optimized import OptimizedFritzBoxAPI, TemplateInfo
 # Importiere Konstanten
 from lib.config import AUTOMATION, MAIN
+from lib.telegram_utils import retry_telegram_call
 
 # Logger initialisieren
 logger = logging.getLogger(__name__)

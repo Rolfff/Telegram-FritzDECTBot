@@ -14,6 +14,9 @@ from typing import Dict, List, Optional, Tuple
 # Logger initialisieren
 logger = logging.getLogger(__name__)
 
+# Import zentraler Telegram-Utilities
+from lib.telegram_utils import retry_telegram_call
+
 # Telegram Importe
 try:
     from telegram import ReplyKeyboardMarkup
@@ -795,9 +798,12 @@ async def set_temp(update, context, user_data, markupList):
         
         reply_markup = {'inline_keyboard': keyboard}
         
-        await update.message.reply_text("🌡️ *Heizung auswählen:*\n\nWähle den Heizkörper, dessen Temperatur du ändern möchtest:",
-                                      parse_mode='Markdown',
-                                      reply_markup=reply_markup)
+        await retry_telegram_call(
+            update.message.reply_text,
+            "🌡️ *Heizung auswählen:*\n\nWähle den Heizkörper, dessen Temperatur du ändern möchtest:",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
         
         # Status speichern für Callback-Handling
         context.user_data['temp_set_mode'] = True
@@ -805,8 +811,11 @@ async def set_temp(update, context, user_data, markupList):
         
     except Exception as e:
         logger.error(f"Fehler beim Laden der Heizkörper: {str(e)}")
-        await update.message.reply_text(f"Fehler beim Laden der Heizkörper: {str(e)}",
-                                      reply_markup=context.user_data.get('keyboard', markupList[STATISTICS]))
+        await retry_telegram_call(
+            update.message.reply_text,
+            f"Fehler beim Laden der Heizkörper: {str(e)}",
+            reply_markup=context.user_data.get('keyboard', markupList[STATISTICS])
+        )
     
     return context.user_data.get('status', STATISTICS)
 
@@ -1117,12 +1126,17 @@ async def status(update, context, user_data, markupList):
                 else:
                     # Keyboard ist eine Liste von Strings, erstelle ReplyKeyboardMarkup
                     keyboard_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-                await update.message.reply_text(message, reply_markup=keyboard_markup, parse_mode='Markdown')
+                await retry_telegram_call(
+                    update.message.reply_text,
+                    message,
+                    reply_markup=keyboard_markup,
+                    parse_mode='Markdown'
+                )
             else:
                 # Prüfen ob reply_text async ist
                 reply_func = getattr(update.message, 'reply_text', None)
                 if reply_func and asyncio.iscoroutinefunction(reply_func):
-                    await reply_func(message, parse_mode='Markdown')
+                    await retry_telegram_call(reply_func, message, parse_mode='Markdown')
                 elif reply_func:
                     reply_func(message)
         return user_data.get('status', STATISTICS)
@@ -1132,7 +1146,8 @@ async def status(update, context, user_data, markupList):
         if hasattr(update.message, 'reply_text'):
             if TELEGRAM_AVAILABLE and ReplyKeyboardMarkup:
                 keyboard_markup = get_keyboard_markup(user_data.get('keyboard', []))
-                await update.message.reply_text(
+                await retry_telegram_call(
+                    update.message.reply_text,
                     f"❌ Fehler bei der Statusabfrage: {str(e)}",
                     reply_markup=keyboard_markup
                 )
@@ -1146,11 +1161,11 @@ async def status(update, context, user_data, markupList):
         return user_data['status']
 
 async def safe_edit_message(message, text, reply_markup=None):
-    """Sichere Nachrichten-Bearbeitung mit Fehlerbehandlung"""
+    """Sichere Nachrichten-Bearbeitung mit Fehlerbehandlung und Retry-Logik"""
     try:
         if message and hasattr(message, 'edit_text'):
             logger.debug(f"Versuche Nachricht zu bearbeiten: {text[:50]}...")
-            await message.edit_text(text, reply_markup=reply_markup)
+            await retry_telegram_call(message.edit_text, text, reply_markup=reply_markup)
             logger.debug("Nachricht erfolgreich bearbeitet")
             return True
         else:
@@ -1189,8 +1204,11 @@ async def temp_history(update, context, user_data, markupList):
         context.user_data['status'] = STATISTICS
         
         # Ladebalken-Nachricht senden
-        loading_message = await update.message.reply_text("📊 Lade Temperaturverlauf...", 
-                                                     reply_markup=context.user_data.get('keyboard', []))
+        loading_message = await retry_telegram_call(
+            update.message.reply_text,
+            "📊 Lade Temperaturverlauf...",
+            reply_markup=context.user_data.get('keyboard', [])
+        )
         logger.info(f"Lade-Nachricht gesendet: Message ID {loading_message.message_id}")
         
         # Sicherstellen dass Login gültig ist
@@ -1348,8 +1366,9 @@ async def temp_history(update, context, user_data, markupList):
             
             # Bild senden
             logger.info("Lösche Lade-Nachricht und sende Graphik...")
-            await loading_message.delete()
-            await update.message.reply_photo(
+            await retry_telegram_call(loading_message.delete)
+            await retry_telegram_call(
+                update.message.reply_photo,
                 photo=img_buffer,
                 caption=summary_text,
                 parse_mode='Markdown',
@@ -1364,16 +1383,22 @@ async def temp_history(update, context, user_data, markupList):
             except:
                 pass
             if not await safe_edit_message(loading_message, "❌ Matplotlib nicht installiert. Bitte installieren Sie:\n`pip install matplotlib`"):
-                await update.message.reply_text("❌ Matplotlib nicht installiert. Bitte installieren Sie:\n`pip install matplotlib`",
-                                              reply_markup=context.user_data.get('keyboard', []))
+                await retry_telegram_call(
+                    update.message.reply_text,
+                    "❌ Matplotlib nicht installiert. Bitte installieren Sie:\n`pip install matplotlib`",
+                    reply_markup=context.user_data.get('keyboard', [])
+                )
         except TimeoutError as e:
             # Timeout deaktivieren
             signal.alarm(0)
             error_msg = f"❌ Graphik-Erstellung hat zu lange gedauert (Timeout). Versuchen Sie, weniger Heizkörper abzufragen."
             logger.error(f"Graphik-Timeout: {e}")
             # Neue Nachricht senden statt zu bearbeiten (da loading_message evtl. bereits gelöscht)
-            await update.message.reply_text(error_msg,
-                                          reply_markup=context.user_data.get('keyboard', []))
+            await retry_telegram_call(
+                update.message.reply_text,
+                error_msg,
+                reply_markup=context.user_data.get('keyboard', [])
+            )
         except Exception as e:
             # Timeout deaktivieren falls noch aktiv
             try:
@@ -1383,8 +1408,11 @@ async def temp_history(update, context, user_data, markupList):
             error_msg = f"❌ Fehler beim Erstellen der Graphik: {str(e)}"
             logger.error(f"Graphik-Fehler: {e}")
             # Neue Nachricht senden statt zu bearbeiten (da loading_message evtl. bereits gelöscht)
-            await update.message.reply_text(error_msg,
-                                          reply_markup=context.user_data.get('keyboard', []))
+            await retry_telegram_call(
+                update.message.reply_text,
+                error_msg,
+                reply_markup=context.user_data.get('keyboard', [])
+            )
     
     except Exception as e:
         if hasattr(update.message, 'reply_text'):
@@ -1936,12 +1964,15 @@ async def window_open_mode(update, context, user_data, markupList):
             if hasattr(update.message, 'reply_text'):
                 if TELEGRAM_AVAILABLE and ReplyKeyboardMarkup:
                     keyboard_markup = get_keyboard_markup(user_data.get('keyboard', []))
-                    await update.message.reply_text("❌ Verbindungsfehler: Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit",
-                                                  reply_markup=keyboard_markup)
+                    await retry_telegram_call(
+                        update.message.reply_text,
+                        "❌ Verbindungsfehler: Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit",
+                        reply_markup=keyboard_markup
+                    )
                 else:
                     reply_func = getattr(update.message, 'reply_text', None)
                     if reply_func and asyncio.iscoroutinefunction(reply_func):
-                        await reply_func("❌ Verbindungsfehler: Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit")
+                        await retry_telegram_call(reply_func, "❌ Verbindungsfehler: Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit")
                     elif reply_func:
                         reply_func("❌ Verbindungsfehler: Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit")
             return user_data.get('status', STATISTICS)
@@ -1952,12 +1983,15 @@ async def window_open_mode(update, context, user_data, markupList):
             if hasattr(update.message, 'reply_text'):
                 if TELEGRAM_AVAILABLE and ReplyKeyboardMarkup:
                     keyboard_markup = get_keyboard_markup(user_data.get('keyboard', []))
-                    await update.message.reply_text("❌ Keine Geräte gefunden!",
-                                                  reply_markup=keyboard_markup)
+                    await retry_telegram_call(
+                        update.message.reply_text,
+                        "❌ Keine Geräte gefunden!",
+                        reply_markup=keyboard_markup
+                    )
                 else:
                     reply_func = getattr(update.message, 'reply_text', None)
                     if reply_func and asyncio.iscoroutinefunction(reply_func):
-                        await reply_func("❌ Keine Geräte gefunden!")
+                        await retry_telegram_call(reply_func, "❌ Keine Geräte gefunden!")
                     elif reply_func:
                         reply_func("❌ Keine Geräte gefunden!")
             return user_data.get('status', STATISTICS)
@@ -1967,12 +2001,15 @@ async def window_open_mode(update, context, user_data, markupList):
             if hasattr(update.message, 'reply_text'):
                 if TELEGRAM_AVAILABLE and ReplyKeyboardMarkup:
                     keyboard_markup = get_keyboard_markup(user_data.get('keyboard', []))
-                    await update.message.reply_text("❌ Keine Heizkörper gefunden!",
-                                                  reply_markup=keyboard_markup)
+                    await retry_telegram_call(
+                        update.message.reply_text,
+                        "❌ Keine Heizkörper gefunden!",
+                        reply_markup=keyboard_markup
+                    )
                 else:
                     reply_func = getattr(update.message, 'reply_text', None)
                     if reply_func and asyncio.iscoroutinefunction(reply_func):
-                        await reply_func("❌ Keine Heizkörper gefunden!")
+                        await retry_telegram_call(reply_func, "❌ Keine Heizkörper gefunden!")
                     elif reply_func:
                         reply_func("❌ Keine Heizkörper gefunden!")
             return user_data.get('status', STATISTICS)
@@ -2132,12 +2169,15 @@ async def vacation_mode(update, context, user_data, markupList):
             if hasattr(update.message, 'reply_text'):
                 if TELEGRAM_AVAILABLE and ReplyKeyboardMarkup:
                     keyboard_markup = get_keyboard_markup(user_data.get('keyboard', []))
-                    await update.message.reply_text("❌ Verbindungsfehler: Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit",
-                                                  reply_markup=keyboard_markup)
+                    await retry_telegram_call(
+                        update.message.reply_text,
+                        "❌ Verbindungsfehler: Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit",
+                        reply_markup=keyboard_markup
+                    )
                 else:
                     reply_func = getattr(update.message, 'reply_text', None)
                     if reply_func and asyncio.iscoroutinefunction(reply_func):
-                        await reply_func("❌ Verbindungsfehler: Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit")
+                        await retry_telegram_call(reply_func, "❌ Verbindungsfehler: Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit")
                     elif reply_func:
                         reply_func("❌ Verbindungsfehler: Alle Login-Methoden fehlgeschlagen - überprüfen Sie Zugangsdaten und Erreichbarkeit")
             return user_data.get('status', STATISTICS)
@@ -2148,12 +2188,15 @@ async def vacation_mode(update, context, user_data, markupList):
             if hasattr(update.message, 'reply_text'):
                 if TELEGRAM_AVAILABLE and ReplyKeyboardMarkup:
                     keyboard_markup = get_keyboard_markup(user_data.get('keyboard', []))
-                    await update.message.reply_text("Keine Geräte gefunden oder Verbindung zur FritzBox fehlgeschlagen.",
-                                                  reply_markup=keyboard_markup)
+                    await retry_telegram_call(
+                        update.message.reply_text,
+                        "Keine Geräte gefunden oder Verbindung zur FritzBox fehlgeschlagen.",
+                        reply_markup=keyboard_markup
+                    )
                 else:
                     reply_func = getattr(update.message, 'reply_text', None)
                     if reply_func and asyncio.iscoroutinefunction(reply_func):
-                        await reply_func("Keine Geräte gefunden oder Verbindung zur FritzBox fehlgeschlagen.")
+                        await retry_telegram_call(reply_func, "Keine Geräte gefunden oder Verbindung zur FritzBox fehlgeschlagen.")
                     elif reply_func:
                         reply_func("Keine Geräte gefunden oder Verbindung zur FritzBox fehlgeschlagen.")
             return user_data.get('status', STATISTICS)
@@ -2165,12 +2208,15 @@ async def vacation_mode(update, context, user_data, markupList):
             if hasattr(update.message, 'reply_text'):
                 if TELEGRAM_AVAILABLE and ReplyKeyboardMarkup:
                     keyboard_markup = get_keyboard_markup(user_data.get('keyboard', []))
-                    await update.message.reply_text("Keine Heizkörper gefunden.",
-                                                  reply_markup=keyboard_markup)
+                    await retry_telegram_call(
+                        update.message.reply_text,
+                        "Keine Heizkörper gefunden.",
+                        reply_markup=keyboard_markup
+                    )
                 else:
                     reply_func = getattr(update.message, 'reply_text', None)
                     if reply_func and asyncio.iscoroutinefunction(reply_func):
-                        await reply_func("Keine Heizkörper gefunden.")
+                        await retry_telegram_call(reply_func, "Keine Heizkörper gefunden.")
                     elif reply_func:
                         reply_func("Keine Heizkörper gefunden.")
             return user_data.get('status', STATISTICS)

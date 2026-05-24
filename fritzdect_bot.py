@@ -33,6 +33,7 @@ except ImportError:
 from lib.config import modeList, markupList, LOGIN, MAIN, ADMIN, STATISTICS, AUTOMATION, SETTINGS, Config, genMarkupList
 from lib.user_database import UserDatabase
 from lib.fritzbox_api_optimized import OptimizedFritzBoxAPI
+from lib.telegram_utils import retry_telegram_call
 
 import lib.adminMode as AdminMode
 import lib.loginMode as LoginMode
@@ -181,7 +182,8 @@ async def checkAuthentifizierung(update, user_data):
                 if was_just_granted:
                     user_data['keyboard'] = markupList[MAIN]
                     user_data['status'] = MAIN
-                    await update.message.reply_text(
+                    await retry_telegram_call(
+                        update.message.reply_text,
                         '🎉 **Willkommen im FritzDECT-Bot!**\n\n'
                         'Dein Zugriff wurde erfolgreich aktiviert.\n'
                         'Du kannst jetzt alle Funktionen nutzen.\n\n'
@@ -191,7 +193,11 @@ async def checkAuthentifizierung(update, user_data):
             else:
                 user_data['isAuthenticated'] = False
                 if not db.is_user_blocked(int(chat_id)):
-                    await update.message.reply_text('Ohh... Deine Berechtigung ist abgelaufen.', reply_markup=markupList[LOGIN])
+                    await retry_telegram_call(
+                        update.message.reply_text,
+                        'Ohh... Deine Berechtigung ist abgelaufen.',
+                        reply_markup=markupList[LOGIN]
+                    )
         except:
             user_data['isAuthenticated'] = False
     
@@ -303,7 +309,11 @@ async def selectModeFunc(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     admin_ids = config.get_admin_chat_ids()
                     for admin_id in admin_ids:
                         try:
-                            await context.bot.send_message(admin_id, text=context.user_data['firstname']+" hat Funktion "+str(module.__name__ if hasattr(module, '__name__') else module)+"."+funkName+" aufgerufen.")
+                            await retry_telegram_call(
+                                context.bot.send_message,
+                                admin_id,
+                                text=context.user_data['firstname']+" hat Funktion "+str(module.__name__ if hasattr(module, '__name__') else module)+"."+funkName+" aufgerufen."
+                            )
                         except Exception as e:
                             logger.warning(f"Konnte Admin-Benachrichtigung nicht senden an {admin_id}: {e}")
                 
@@ -331,7 +341,8 @@ async def send_admin_notifications(context, notifications):
         message = notification['message']
         for admin_id in admin_ids:
             try:
-                await context.bot.send_message(
+                await retry_telegram_call(
+                    context.bot.send_message,
                     chat_id=admin_id,
                     text=message,
                     parse_mode='Markdown'

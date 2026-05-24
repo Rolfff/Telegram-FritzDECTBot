@@ -9,6 +9,7 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from lib.config import Config
 from lib.user_database import UserDatabase
+from lib.telegram_utils import retry_telegram_call
 
 # Telegram Importe mit Fallback und Voice Support
 try:
@@ -109,9 +110,10 @@ class NotificationAPI:
                     # Nachricht senden basierend auf Modus
                     if user_mode == 'none':  # none - Keine Benachrichtigung
                         continue  # Überspringen, keine Benachrichtigung
-                        
+
                     elif user_mode == 'silent':  # silent - Silent Notification
-                        await self.bot.send_message(
+                        await retry_telegram_call(
+                            self.bot.send_message,
                             chat_id=chat_id,
                             text=text,
                             parse_mode='Markdown',
@@ -119,9 +121,10 @@ class NotificationAPI:
                         )
                         notifications_sent += 1
                         self.logger.info(f"Silent Benachrichtigung gesendet an User {chat_id} ({language_code}) - Modus: {user_mode}")
-                        
+
                     elif user_mode == 'push':  # push - Normale Push-Nachricht
-                        await self.bot.send_message(
+                        await retry_telegram_call(
+                            self.bot.send_message,
                             chat_id=chat_id,
                             text=text,
                             parse_mode='Markdown'

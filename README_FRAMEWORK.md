@@ -691,6 +691,137 @@ callback_configs = [
 ]
 ```
 
+## Telegram Retry-Funktionalität
+
+### Übersicht
+
+Der Bot verfügt über eine zentrale Retry-Funktion für Telegram-Nachrichten, um Netzwerkfehler automatisch zu behandeln. Diese Funktion ist in `lib/telegram_utils.py` implementiert und wird in allen wichtigen Modulen verwendet.
+
+### retry_telegram_call Funktion
+
+**Datei:** `lib/telegram_utils.py`
+
+```python
+async def retry_telegram_call(func, *args, max_retries=10, base_delay=1, **kwargs):
+    """
+    Führt einen Telegram-Aufruf mit Retry-Logik aus.
+    Bei NetworkError wird der Aufruf bis zu max_retries Mal wiederholt.
+    
+    Args:
+        func: Die async-Funktion, die ausgeführt werden soll
+        *args: Positionale Argumente für die Funktion
+        max_retries: Maximale Anzahl an Wiederholungsversuchen (Standard: 10)
+        base_delay: Basis-Verzögerung in Sekunden für exponential backoff (Standard: 1)
+        **kwargs: Keyword-Argumente für die Funktion
+    
+    Returns:
+        Das Ergebnis der Funktion
+    
+    Raises:
+        Exception: Die ursprüngliche Exception, wenn alle Retrys fehlschlagen
+    """
+```
+
+### Funktionsweise
+
+1. **Exponential Backoff:** Die Verzögerung zwischen den Retrys verdoppelt sich bei jedem Versuch (1s, 2s, 4s, 8s, ...)
+2. **Maximale Retrys:** Standardmäßig 10 Versuche
+3. **NetworkError-Behandlung:** Nur bei `telegram.error.NetworkError` wird retryt
+4. **Logging:** Jeder Retry wird geloggt mit Versuchsnummer und Verzögerung
+5. **Error-Log:** Nach 10 fehlgeschlagenen Versuchen wird ein Error geloggt
+
+### Verwendung
+
+#### Import
+
+```python
+from lib.telegram_utils import retry_telegram_call
+```
+
+#### Beispiel: reply_text mit Retry
+
+```python
+# Ohne Retry
+await update.message.reply_text("Nachricht", reply_markup=keyboard)
+
+# Mit Retry
+await retry_telegram_call(
+    update.message.reply_text,
+    "Nachricht",
+    reply_markup=keyboard
+)
+```
+
+#### Beispiel: send_message mit Retry
+
+```python
+# Ohne Retry
+await bot.send_message(chat_id=123, text="Nachricht")
+
+# Mit Retry
+await retry_telegram_call(
+    bot.send_message,
+    chat_id=123,
+    text="Nachricht"
+)
+```
+
+#### Beispiel: edit_message_text mit Retry
+
+```python
+# Ohne Retry
+await query.edit_message_text("Neuer Text")
+
+# Mit Retry
+await retry_telegram_call(
+    query.edit_message_text,
+    "Neuer Text"
+)
+```
+
+### Integration in Modulen
+
+Die Retry-Funktion ist bereits in folgenden Modulen integriert:
+
+- **fritzdect_bot.py:** Haupt-Bot-Datei mit Admin-Benachrichtigungen
+- **lib/statistikMode_optimized.py:** Statistik-Modul mit Graphik- und Status-Nachrichten
+- **lib/adminMode.py:** Admin-Modul mit Benutzer-Verwaltung
+- **lib/automationMode_optimized.py:** Automatisierungs-Modul
+- **notification_api.py:** Notification-API für externe Benachrichtigungen
+
+### Best Practices
+
+1. **Immer verwenden für kritische Nachrichten:** Alle wichtigen Telegram-Aufrufe sollten mit retry_telegram_call umhüllt werden
+2. **Nicht für interne Debug-Nachrichten:** Für reine Debug-Logs kann auf Retry verzichtet werden
+3. **Parameter beachten:** Die Funktion muss als erstes Argument übergeben werden, danach die Parameter
+4. **Fehlerbehandlung:** Die Retry-Funktion wirft die Exception nach allen Retrys, daher sollte try-except weiterhin verwendet werden
+
+### Beispiel für neue Module
+
+Wenn Sie ein neues Modul erstellen, sollten Sie die Retry-Funktion verwenden:
+
+```python
+# lib/newMode.py
+from lib.telegram_utils import retry_telegram_call
+
+async def new_function(update, context, user_data, markupList):
+    try:
+        # Telegram-Aufruf mit Retry
+        await retry_telegram_call(
+            update.message.reply_text,
+            "Wichtige Nachricht",
+            reply_markup=user_data['keyboard']
+        )
+        
+        # Weitere Logik...
+        
+    except Exception as e:
+        logger.error(f"Fehler: {e}")
+        # Fehlerbehandlung
+    
+    return user_data['status']
+```
+
 ## Best Practices
 
 ### 1. Namenskonventionen
