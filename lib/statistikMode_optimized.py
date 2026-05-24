@@ -1229,22 +1229,26 @@ async def temp_history(update, context, user_data, markupList):
             ain = heater.ain
             logger.debug(f"Verarbeite Heizkörper {i+1}/{len(heaters)}: {name} (AIN: {ain})")
             
-            # Historie abrufen
-            history = stats_manager.get_temperature_history(ain)
-            if history and history.get('temperatures_celsius'):
-                all_histories.append({
-                    'name': name,
-                    'ain': ain,
-                    'temperatures': history['temperatures_celsius'],
-                    'current_temp': history['current_temp'],
-                    'min_temp': history['min_temp'],
-                    'max_temp': history['max_temp'],
-                    'avg_temp': history['avg_temp']
-                })
-                successful_analyses += 1
-                logger.debug(f"✅ {name}: {len(history['temperatures_celsius'])} Datenpunkte")
-            else:
-                logger.warning(f"❌ {name}: Keine Daten verfügbar")
+            # Historie abrufen mit Fehlerbehandlung
+            try:
+                history = stats_manager.get_temperature_history(ain)
+                if history and history.get('temperatures_celsius'):
+                    all_histories.append({
+                        'name': name,
+                        'ain': ain,
+                        'temperatures': history['temperatures_celsius'],
+                        'current_temp': history['current_temp'],
+                        'min_temp': history['min_temp'],
+                        'max_temp': history['max_temp'],
+                        'avg_temp': history['avg_temp']
+                    })
+                    successful_analyses += 1
+                    logger.debug(f"✅ {name}: {len(history['temperatures_celsius'])} Datenpunkte")
+                else:
+                    logger.warning(f"❌ {name}: Keine Daten verfügbar")
+            except Exception as e:
+                logger.warning(f"❌ {name}: Fehler beim Abrufen - {type(e).__name__}: {str(e)}")
+                # Einzelne Fehler nicht abbrechen, mit nächsten Heizkörper weitermachen
         
         logger.info(f"Daten sammeln abgeschlossen: {successful_analyses}/{len(heaters)} Heizkörper mit Daten")
         
@@ -1262,6 +1266,15 @@ async def temp_history(update, context, user_data, markupList):
             import matplotlib.dates as mdates
             from datetime import datetime, timedelta
             import io
+            import signal
+            
+            # Timeout-Funktion für Graphik-Erstellung
+            def timeout_handler(signum, frame):
+                raise TimeoutError("Graphik-Erstellung hat zu lange gedauert")
+            
+            # Timeout auf 30 Sekunden setzen
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(30)
             
             # Figur erstellen
             plt.figure(figsize=(14, 8))
@@ -1318,6 +1331,9 @@ async def temp_history(update, context, user_data, markupList):
             img_buffer.seek(0)
             plt.close()
             
+            # Timeout deaktivieren
+            signal.alarm(0)
+            
             # Zusammenfassende Statistik
             summary_text = f"📊 *Temperaturverlauf Analyse*\n\n"
             summary_text += f"✅ {successful_analyses}/{len(heaters)} Heizkörper mit Daten\n"
@@ -1342,15 +1358,33 @@ async def temp_history(update, context, user_data, markupList):
             logger.info("Temperaturverlauf erfolgreich gesendet")
             
         except ImportError:
+            # Timeout deaktivieren falls noch aktiv
+            try:
+                signal.alarm(0)
+            except:
+                pass
             if not await safe_edit_message(loading_message, "❌ Matplotlib nicht installiert. Bitte installieren Sie:\n`pip install matplotlib`"):
                 await update.message.reply_text("❌ Matplotlib nicht installiert. Bitte installieren Sie:\n`pip install matplotlib`",
                                               reply_markup=context.user_data.get('keyboard', []))
+        except TimeoutError as e:
+            # Timeout deaktivieren
+            signal.alarm(0)
+            error_msg = f"❌ Graphik-Erstellung hat zu lange gedauert (Timeout). Versuchen Sie, weniger Heizkörper abzufragen."
+            logger.error(f"Graphik-Timeout: {e}")
+            # Neue Nachricht senden statt zu bearbeiten (da loading_message evtl. bereits gelöscht)
+            await update.message.reply_text(error_msg,
+                                          reply_markup=context.user_data.get('keyboard', []))
         except Exception as e:
+            # Timeout deaktivieren falls noch aktiv
+            try:
+                signal.alarm(0)
+            except:
+                pass
             error_msg = f"❌ Fehler beim Erstellen der Graphik: {str(e)}"
             logger.error(f"Graphik-Fehler: {e}")
-            if not await safe_edit_message(loading_message, error_msg):
-                await update.message.reply_text(error_msg,
-                                              reply_markup=context.user_data.get('keyboard', []))
+            # Neue Nachricht senden statt zu bearbeiten (da loading_message evtl. bereits gelöscht)
+            await update.message.reply_text(error_msg,
+                                          reply_markup=context.user_data.get('keyboard', []))
     
     except Exception as e:
         if hasattr(update.message, 'reply_text'):
